@@ -223,16 +223,19 @@ async function loadPublicVouchers() {
   try {
     const result = await fetchJson(`${API_BASE}/public-vouchers`);
     const vouchers = result.items || [];
+    promoSection.hidden = false;
     if (!vouchers.length) {
-      promoSection.hidden = true;
       if (sidebarPromo) sidebarPromo.hidden = true;
       if (heroPromo) heroPromo.hidden = true;
+      promoList.innerHTML = '<p class="public-voucher-empty">Belum ada voucher yang dipublikasikan. Cek kembali nanti untuk promo terbaru.</p>';
       return;
     }
-    promoSection.hidden = false;
     promoList.innerHTML = vouchers.map((voucher) => `
-      <p class="public-voucher-item">Gunakan kode <strong>${escapeHtml(voucher.code)}</strong> untuk diskon
-        <strong>${voucher.discount_type === 'percent' ? `${Number(voucher.discount_value)}%` : formatRupiah(voucher.discount_value)}</strong>.</p>
+      <article class="public-voucher-item">
+        <span>Gunakan kode <strong class="public-voucher-code">${escapeHtml(voucher.code)}</strong> untuk diskon
+          <strong>${voucher.discount_type === 'percent' ? `${Number(voucher.discount_value)}%` : formatRupiah(voucher.discount_value)}</strong>.</span>
+        ${voucher.available ? '' : `<small>${escapeHtml(voucher.status_message || 'Voucher belum tersedia.')}</small>`}
+      </article>
     `).join('');
     if (sidebarPromo) {
       sidebarPromo.hidden = false;
@@ -246,7 +249,8 @@ async function loadPublicVouchers() {
     }
   } catch (error) {
     console.error('Public voucher load failed:', error);
-    promoSection.hidden = true;
+    promoSection.hidden = false;
+    promoList.innerHTML = '<p class="public-voucher-empty">Promo belum dapat dimuat. Silakan coba kembali nanti.</p>';
     if (sidebarPromo) sidebarPromo.hidden = true;
     if (heroPromo) heroPromo.hidden = true;
   }

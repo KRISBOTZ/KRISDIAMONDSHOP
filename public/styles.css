@@ -228,8 +228,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .promo-inner { position: relative; display: flex; min-height: 137px; align-items: center; gap: 24px; }
 .promo-gift { display: grid; width: 67px; height: 67px; flex: 0 0 auto; place-items: center; border: 1px solid rgba(214,190,255,.25); border-radius: 20px; color: #f2e7ff; background: linear-gradient(145deg,rgba(161,110,255,.44),rgba(83,42,203,.35)); box-shadow: 0 10px 32px rgba(0,0,0,.18); font-size: 32px; }
 .promo-copy { flex: 1; }
-.public-voucher-item { margin: 4px 0 0; color: #c9c0dc; font-size: 11px; }
-.public-voucher-item + .public-voucher-item { margin-top: 5px; }
+.public-voucher-item { display: grid; gap: 5px; margin: 5px 0 0; color: #c9c0dc; font-size: 11px; line-height: 1.55; }
+.public-voucher-item + .public-voucher-item { margin-top: 8px; }
+.public-voucher-item small, .public-voucher-empty { color: #aaa1c1; font-size: 9px; }
+.public-voucher-code { display: inline-block; padding: 2px 6px; border: 1px solid rgba(218,198,255,.25); border-radius: 5px; color: #fff; background: rgba(144,94,255,.22); letter-spacing: .06em; }
 .promo-copy .section-kicker { color: #c5a9ff; }
 .promo-copy h2 { margin: 6px 0 4px; font: 700 20px "Space Grotesk",sans-serif; letter-spacing: -.025em; }
 .promo-copy p { margin: 0; color: #c9c1df; font-size: 11px; }

@@ -664,13 +664,21 @@ app.post('/api/vouchers/validate', asyncRoute(async (req, res) => {
 app.get('/api/public-vouchers', asyncRoute(async (req, res) => {
   if (!dbOrError(res)) return;
   const { data, error } = await supabase.from('vouchers')
-    .select('code,discount_type,discount_value,starts_at,expires_at,max_uses,uses')
-    .eq('active', true)
+    .select('code,discount_type,discount_value,active,starts_at,expires_at,max_uses,uses')
     .eq('is_public', true)
     .order('created_at', { ascending: false });
   if (error) throw error;
   const now = Date.now();
-  const items = (data || []).filter((voucher) => !getVoucherUnavailableMessage({ ...voucher, active: true }, now));
+  const items = (data || []).map((voucher) => ({
+    code: voucher.code,
+    discount_type: voucher.discount_type,
+    discount_value: voucher.discount_value,
+    starts_at: voucher.starts_at,
+    expires_at: voucher.expires_at,
+    active: voucher.active,
+    available: !getVoucherUnavailableMessage(voucher, now),
+    status_message: getVoucherUnavailableMessage(voucher, now)
+  }));
   res.json({ items });
 }));
 
