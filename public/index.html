@@ -30,6 +30,7 @@
             <span aria-hidden="true">⌕</span>
             <input id="header-search" type="search" placeholder="Cari game atau produk..." />
           </div>
+          <button class="button button-glass button-small" id="customer-account-button" type="button">Login</button>
           <a class="button button-primary button-small" href="#produk">Top Up <span aria-hidden="true">↗</span></a>
           <button class="mobile-menu-toggle" id="mobile-menu-toggle" type="button" aria-label="Buka navigasi" aria-expanded="false">☰</button>
         </div>
@@ -63,8 +64,13 @@
           <div class="hero-art">
             <div class="hero-art-orbit orbit-one"></div>
             <div class="hero-art-orbit orbit-two"></div>
-            <img id="hero-banner-image" src="https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=1200&q=85" alt="Arena esports dengan pencahayaan ungu" />
+            <img id="hero-banner-image" src="https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=1200&q=85" data-default-src="https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=1200&q=85" alt="Arena esports dengan pencahayaan ungu" />
             <div class="hero-art-overlay"></div>
+            <div class="hero-carousel-controls" id="hero-carousel-controls" hidden>
+              <button type="button" id="hero-banner-prev" aria-label="Banner sebelumnya">‹</button>
+              <div id="hero-banner-dots" aria-label="Pilih banner"></div>
+              <button type="button" id="hero-banner-next" aria-label="Banner berikutnya">›</button>
+            </div>
             <div class="hero-float-card float-status"><span class="status-spark">✦</span><span><strong>Top up cepat</strong><small>Pesanan diproses dengan aman</small></span><i>✓</i></div>
             <div class="hero-float-card float-discount" id="hero-public-promo" hidden><span class="discount-icon">%</span><span><small>Voucher spesial</small><strong id="hero-public-voucher"></strong></span></div>
             <div class="hero-caption"><span class="caption-line"></span><span>YOUR GAME, YOUR NEXT LEVEL</span></div>
@@ -190,7 +196,7 @@
       <section class="section about-section" id="tentang">
         <div class="container about-layout">
           <div class="about-art">
-            <img src="https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=900&q=85" alt="Perangkat gaming dan pencahayaan neon" loading="lazy" />
+            <img id="about-banner-image" src="https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=900&q=85" data-default-src="https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=900&q=85" alt="Perangkat gaming dan pencahayaan neon" loading="lazy" />
             <div class="about-art-note"><span>✦</span><strong>Teman top up<br />para gamers</strong></div>
           </div>
           <div class="about-copy">
@@ -259,6 +265,20 @@
       </div>
       <div class="container footer-bottom"><span>© 2026 KRIS DIAMOND SHOP. Dibuat untuk para gamers.</span><span>Transaksi aman <i>✓</i></span></div>
     </footer>
+    <dialog id="customer-auth-dialog" class="customer-auth-dialog">
+      <form id="customer-auth-form" class="customer-auth-card">
+        <button class="customer-auth-close" id="customer-auth-close" type="button" aria-label="Tutup">×</button>
+        <span class="section-kicker">AKUN PELANGGAN</span>
+        <h2 id="customer-auth-title">Masuk ke akun</h2>
+        <p id="customer-auth-description">Masuk untuk mengelola akun dan menggunakan voucher.</p>
+        <label id="customer-name-label" hidden>Nama lengkap<input id="customer-auth-name" class="input" type="text" autocomplete="name" maxlength="100" /></label>
+        <label>Email<input id="customer-auth-email" class="input" type="email" autocomplete="email" required maxlength="254" /></label>
+        <label>Kata sandi<input id="customer-auth-password" class="input" type="password" autocomplete="current-password" required minlength="8" maxlength="128" /></label>
+        <p id="customer-auth-feedback" class="form-feedback" role="status" hidden></p>
+        <button class="button button-primary button-wide" id="customer-auth-submit" type="submit">Masuk</button>
+        <button class="customer-auth-switch" id="customer-auth-switch" type="button">Belum punya akun? Daftar</button>
+      </form>
+    </dialog>
     <script src="/app.js"></script>
   </body>
 </html>

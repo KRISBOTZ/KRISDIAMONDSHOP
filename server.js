@@ -20,6 +20,7 @@ const upload = multer({
   }
 });
 const supabaseUrl = (process.env.SUPABASE_URL || '').trim();
+const supabaseAnonKey = (process.env.SUPABASE_ANON_KEY || '').trim();
 const supabaseKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || '').trim();
 let supabaseConfigError = '';
 if (!supabaseUrl) {
@@ -459,11 +460,15 @@ function validateVoucherInput(body) {
   const maxUses = body?.maxUses === '' || body?.maxUses == null ? null : Number(body.maxUses);
   const startsAt = body?.startsAt || null;
   const expiresAt = body?.expiresAt || null;
+  const audience = String(body?.audience || 'everyone');
 
   if (!/^[A-Z0-9_-]{3,30}$/.test(code)) {
     return { error: 'Kode voucher harus 3–30 karakter dan hanya boleh berisi huruf, angka, tanda hubung, atau garis bawah.' };
   }
   if (!['percent', 'fixed'].includes(discountType)) return { error: 'Pilih jenis diskon yang valid.' };
+  if (!['everyone', 'registered', 'new_accounts', 'existing_accounts'].includes(audience)) {
+    return { error: 'Pilih sasaran akun voucher yang valid.' };
+  }
   if (!Number.isSafeInteger(discountValue) || discountValue < 1
     || (discountType === 'percent' && discountValue > 100)) {
     return { error: discountType === 'percent'
@@ -487,6 +492,7 @@ function validateVoucherInput(body) {
       discount_value: discountValue,
       active: body?.active !== false,
       is_public: body?.isPublic === true,
+      audience,
       starts_at: startsAt,
       expires_at: expiresAt,
       max_uses: maxUses
@@ -551,6 +557,43 @@ app.get('/api/health', (req, res) => {
     timestamp: new Date().toISOString()
   });
 });
+
+app.get('/api/customer-auth/config', (req, res) => {
+  if (!supabase || !supabaseAnonKey) {
+    return res.status(503).json({ message: 'Login pelanggan belum dikonfigurasi. Admin perlu mengatur SUPABASE_ANON_KEY.' });
+  }
+  res.json({ supabaseUrl, anonKey: supabaseAnonKey });
+});
+
+async function getCustomerFromRequest(req) {
+  const token = (req.get('authorization') || '').replace(/^Bearer\s+/i, '');
+  if (!token) return { user: null, error: null };
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data?.user) {
+    return { user: null, error: 'Sesi akun tidak valid atau sudah berakhir. Silakan login kembali.' };
+  }
+  if (data.user.banned_until && Date.parse(data.user.banned_until) > Date.now()) {
+    return { user: null, error: 'Akun pelanggan ini telah dinonaktifkan.' };
+  }
+  if (!data.user.email_confirmed_at) {
+    return { user: null, error: 'Verifikasi email akun sebelum melanjutkan.' };
+  }
+  return { user: data.user, error: null };
+}
+
+function isVoucherAudienceEligible(voucher, user, now = Date.now()) {
+  const audience = voucher.audience || 'everyone';
+  if (audience === 'everyone') return true;
+  if (!user) return false;
+  if (audience === 'registered') return true;
+  const audienceStart = Date.parse(voucher.starts_at || voucher.created_at || '');
+  if (!Number.isFinite(audienceStart)) return false;
+  const registeredAt = Date.parse(user.created_at || '');
+  if (!Number.isFinite(registeredAt)) return false;
+  if (audience === 'new_accounts') return registeredAt >= audienceStart;
+  if (audience === 'existing_accounts') return registeredAt < audienceStart;
+  return false;
+}
 
 app.get('/api/games', async (req, res) => {
   if (!dbOrError(res)) return;
@@ -624,7 +667,7 @@ app.get('/api/site-settings', asyncRoute(async (req, res) => {
   if (!dbOrError(res)) return;
   const { data, error } = await supabase.from('site_settings')
     .select('key,value')
-    .in('key', ['hero_banner_url', 'brand_logo_url', 'contact_links', 'maintenance_mode', 'maintenance_message', 'admin_fee']);
+    .in('key', ['hero_banner_url', 'hero_banner_urls', 'about_banner_url', 'brand_logo_url', 'contact_links', 'maintenance_mode', 'maintenance_message', 'admin_fee']);
   if (error) throw error;
   const items = Object.fromEntries(data.map((item) => [item.key, item.value]));
   items.contact_links ||= JSON.stringify([
@@ -636,6 +679,8 @@ app.get('/api/site-settings', asyncRoute(async (req, res) => {
   items.maintenance_mode ||= 'off';
   items.maintenance_message ||= '';
   items.admin_fee ||= '1500';
+  items.hero_banner_urls ||= JSON.stringify(items.hero_banner_url ? [items.hero_banner_url] : []);
+  items.about_banner_url ||= '';
   res.json({ items });
 }));
 
@@ -655,10 +700,20 @@ app.post('/api/vouchers/validate', asyncRoute(async (req, res) => {
   const code = String(req.body?.code || '').trim().toUpperCase();
   const price = Number(req.body?.price);
   if (!code || !Number.isSafeInteger(price) || price < 0) return res.status(400).json({ message: 'Kode voucher atau harga tidak valid.' });
+  const { user, error: customerError } = await getCustomerFromRequest(req);
+  if (customerError) return res.status(401).json({ message: customerError });
+  if (!user) return res.status(401).json({ message: 'Login dan verifikasi email terlebih dahulu untuk menggunakan voucher.' });
   const { data, error } = await supabase.from('vouchers').select('*').eq('code', code).maybeSingle();
   if (error) throw error;
   const unavailableMessage = getVoucherUnavailableMessage(data);
   if (unavailableMessage) return res.status(400).json({ message: unavailableMessage });
+  if (!isVoucherAudienceEligible(data, user)) {
+    return res.status(403).json({ message: 'Voucher ini tidak berlaku untuk jenis akun Anda.' });
+  }
+  const { data: previousUse, error: redemptionError } = await supabase.from('voucher_redemptions')
+    .select('id').eq('voucher_code', code).eq('customer_account_id', user.id).maybeSingle();
+  if (redemptionError) throw redemptionError;
+  if (previousUse) return res.status(400).json({ message: 'Voucher ini sudah pernah digunakan oleh akun Anda.' });
   const discount = data.discount_type === 'percent'
     ? Math.round(price * data.discount_value / 100)
     : Math.min(price, data.discount_value);
@@ -667,13 +722,15 @@ app.post('/api/vouchers/validate', asyncRoute(async (req, res) => {
 
 app.get('/api/public-vouchers', asyncRoute(async (req, res) => {
   if (!dbOrError(res)) return;
+  const { user, error: customerError } = await getCustomerFromRequest(req);
+  if (customerError) return res.status(401).json({ message: customerError });
   const { data, error } = await supabase.from('vouchers')
-    .select('code,discount_type,discount_value,active,starts_at,expires_at,max_uses,uses')
+    .select('code,discount_type,discount_value,active,starts_at,expires_at,max_uses,uses,audience,created_at')
     .eq('is_public', true)
     .order('created_at', { ascending: false });
   if (error) throw error;
   const now = Date.now();
-  const items = (data || []).map((voucher) => ({
+  const items = (data || []).filter((voucher) => isVoucherAudienceEligible(voucher, user, now)).map((voucher) => ({
     code: voucher.code,
     discount_type: voucher.discount_type,
     discount_value: voucher.discount_value,
@@ -910,10 +967,15 @@ app.patch('/api/admin/site-settings', adminOnly, asyncRoute(async (req, res) => 
   if (!dbOrError(res)) return;
   const rows = [];
   const updated = {};
-  const addImageSetting = (bodyKey, settingKey, label, responseKey) => {
+  const addImageSetting = (bodyKey, settingKey, label, responseKey, allowEmpty = false) => {
     if (!Object.hasOwn(req.body || {}, bodyKey)) return '';
     const url = String(req.body[bodyKey] || '').trim();
-    if (!url) return `${label} wajib diisi.`;
+    if (!url && !allowEmpty) return `${label} wajib diisi.`;
+    if (!url) {
+      rows.push({ key: settingKey, value: '' });
+      updated[responseKey] = '';
+      return '';
+    }
     try {
       if (!['http:', 'https:'].includes(new URL(url).protocol)) throw new Error('invalid protocol');
     } catch {
@@ -925,10 +987,34 @@ app.patch('/api/admin/site-settings', adminOnly, asyncRoute(async (req, res) => 
   };
   for (const [bodyKey, settingKey, label, responseKey] of [
     ['heroBannerUrl', 'hero_banner_url', 'URL gambar banner', 'heroBannerUrl'],
-    ['brandLogoUrl', 'brand_logo_url', 'URL logo website', 'brandLogoUrl']
+    ['brandLogoUrl', 'brand_logo_url', 'URL logo website', 'brandLogoUrl'],
+    ['aboutBannerUrl', 'about_banner_url', 'URL gambar bagian Tentang', 'aboutBannerUrl', true]
   ]) {
-    const validationMessage = addImageSetting(bodyKey, settingKey, label, responseKey);
+    const validationMessage = addImageSetting(bodyKey, settingKey, label, responseKey, bodyKey === 'aboutBannerUrl');
     if (validationMessage) return res.status(400).json({ message: validationMessage });
+  }
+  if (Object.hasOwn(req.body || {}, 'heroBannerUrls')) {
+    const urls = req.body.heroBannerUrls;
+    if (!Array.isArray(urls) || urls.length > 10 || urls.some((value) => typeof value !== 'string')) {
+      return res.status(400).json({ message: 'Banner utama harus berisi maksimal 10 URL gambar.' });
+    }
+    const normalized = [];
+    for (const value of urls) {
+      const url = value.trim();
+      if (!url) continue;
+      try {
+        if (!['http:', 'https:'].includes(new URL(url).protocol)) throw new Error('invalid protocol');
+      } catch {
+        return res.status(400).json({ message: 'Setiap URL banner harus menggunakan HTTP atau HTTPS.' });
+      }
+      normalized.push(url);
+    }
+    rows.push(
+      { key: 'hero_banner_urls', value: JSON.stringify(normalized) },
+      { key: 'hero_banner_url', value: normalized[0] || '' }
+    );
+    updated.heroBannerUrls = normalized;
+    updated.heroBannerUrl = normalized[0] || '';
   }
   if (Object.hasOwn(req.body || {}, 'contactLinks')) {
     const items = req.body.contactLinks;
@@ -1002,6 +1088,37 @@ app.get('/api/admin/payment-methods', adminOnly, asyncRoute(async (req, res) => 
   const { data, error } = await supabase.from('payment_methods').select('*').order('sort_order').order('name');
   if (error) throw error;
   res.json({ items: data });
+}));
+
+app.get('/api/admin/customers', adminOnly, asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  const { data, error } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+  if (error) throw error;
+  res.json({
+    items: (data.users || []).map((user) => ({
+      id: user.id,
+      email: user.email,
+      name: user.user_metadata?.full_name || '',
+      createdAt: user.created_at,
+      isActive: !user.banned_until || Date.parse(user.banned_until) <= Date.now()
+    }))
+  });
+}));
+
+app.patch('/api/admin/customers/:id/active', adminOnly, asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  const userId = String(req.params.id || '');
+  const isActive = req.body?.isActive;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)
+    || typeof isActive !== 'boolean') {
+    return res.status(400).json({ message: 'Akun pelanggan atau status aktif tidak valid.' });
+  }
+  const { data, error } = await supabase.auth.admin.updateUserById(userId, {
+    ban_duration: isActive ? 'none' : '876000h'
+  });
+  if (error) throw error;
+  if (!data.user) return res.status(404).json({ message: 'Akun pelanggan tidak ditemukan.' });
+  res.json({ message: `Akun pelanggan berhasil ${isActive ? 'diaktifkan' : 'dinonaktifkan'}.` });
 }));
 
 function validatePaymentMethod(body, id) {
@@ -1131,7 +1248,18 @@ app.post('/api/orders', async (req, res) => {
     return res.status(400).json({ message: 'Mohon lengkapi semua data pelanggan dan akun game yang dibutuhkan.' });
   }
 
+  let orderCreated = false;
+  let orderReady = false;
+  let orderId = '';
+  const rollbackOrder = async (id) => {
+    const { error: redemptionCleanupError } = await supabase.from('voucher_redemptions').delete().eq('order_id', id);
+    if (redemptionCleanupError) throw redemptionCleanupError;
+    const { error: orderCleanupError } = await supabase.from('orders').delete().eq('id', id);
+    if (orderCleanupError) throw orderCleanupError;
+  };
   try {
+    const { user: customerAccount, error: customerError } = await getCustomerFromRequest(req);
+    if (customerError) return res.status(401).json({ message: customerError });
     await ensureGames();
     const { data: gameRow, error: gameError } = await supabase.from('games').select('*').eq('id', gameId).maybeSingle();
     if (gameError) throw gameError;
@@ -1160,13 +1288,23 @@ app.post('/api/orders', async (req, res) => {
       if (voucherError) throw voucherError;
       const unavailableMessage = getVoucherUnavailableMessage(data);
       if (unavailableMessage) return res.status(400).json({ message: unavailableMessage });
+      if (!customerAccount) {
+        return res.status(401).json({ message: 'Login dan verifikasi email terlebih dahulu untuk menggunakan voucher.' });
+      }
+      if (!isVoucherAudienceEligible(data, customerAccount)) {
+        return res.status(403).json({ message: 'Voucher ini tidak berlaku untuk jenis akun Anda.' });
+      }
+      const { data: previousUse, error: redemptionError } = await supabase.from('voucher_redemptions')
+        .select('id').eq('voucher_code', voucher).eq('customer_account_id', customerAccount.id).maybeSingle();
+      if (redemptionError) throw redemptionError;
+      if (previousUse) return res.status(400).json({ message: 'Voucher ini sudah pernah digunakan oleh akun Anda.' });
       voucherRow = data;
       discount = data.discount_type === 'percent'
         ? Math.round(Number(variant.price) * data.discount_value / 100)
         : Math.min(Number(variant.price), data.discount_value);
     }
     const now = new Date().toISOString();
-    const orderId = `KDS-${randomUUID().replace(/-/g, '').slice(0, 10).toUpperCase()}`;
+    orderId = `KDS-${randomUUID().replace(/-/g, '').slice(0, 10).toUpperCase()}`;
     const userId = randomUUID();
     const orderRow = {
       id: orderId,
@@ -1180,7 +1318,7 @@ app.post('/api/orders', async (req, res) => {
       discount_amount: discount,
       total_amount: Math.max(Number(variant.price) + adminFee - discount, 0),
       customer_name: String(customerName).trim(),
-      customer_email: String(customerEmail).trim(),
+      customer_email: String(customerAccount?.email || customerEmail).trim(),
       customer_phone: String(customerPhone).trim(),
       user_id_input: String(userIdInput).trim(),
       server_id: String(serverId || '').trim(),
@@ -1190,12 +1328,14 @@ app.post('/api/orders', async (req, res) => {
       note: note || '',
       status: STATUS_FLOW[0],
       user_id: userId,
+      customer_account_id: customerAccount?.id || null,
       created_at: now,
       updated_at: now
     };
 
     const { error: insertError } = await supabase.from('orders').insert(orderRow);
     if (insertError) throw insertError;
+    orderCreated = true;
 
     const { error: historyError } = await supabase.from('order_status_history').insert({
       order_id: orderId,
@@ -1206,20 +1346,37 @@ app.post('/api/orders', async (req, res) => {
     if (historyError) throw historyError;
 
     if (voucherRow) {
+      const { error: redemptionError } = await supabase.from('voucher_redemptions').insert({
+        voucher_code: voucherRow.code,
+        customer_account_id: customerAccount.id,
+        order_id: orderId
+      });
+      if (redemptionError?.code === '23505') {
+        await rollbackOrder(orderId);
+        return res.status(409).json({ message: 'Voucher ini sudah pernah digunakan oleh akun Anda.' });
+      }
+      if (redemptionError) throw redemptionError;
       const redeemed = await redeemVoucher(voucherRow);
       if (!redeemed) {
-        const { error: rollbackError } = await supabase.from('orders').delete().eq('id', orderId);
-        if (rollbackError) throw rollbackError;
+        await rollbackOrder(orderId);
         return res.status(409).json({ message: 'Kuota voucher baru saja habis. Silakan coba kode lain.' });
       }
     }
 
+    orderReady = true;
     await createNotification(userId, orderId, STATUS_FLOW[0], `Pesanan ${orderId} telah dibuat. Silakan lakukan pembayaran untuk melanjutkan proses.`);
     res.status(201).json({
       message: 'Pesanan berhasil dibuat.',
       order: getOrderPayload(orderRow, [{ status: STATUS_FLOW[0], note: 'Pesanan dibuat dan menunggu pembayaran.', created_at: now }])
     });
   } catch (error) {
+    if (orderCreated && !orderReady) {
+      try {
+        await rollbackOrder(orderId);
+      } catch (cleanupError) {
+        console.error('Incomplete order cleanup error:', cleanupError);
+      }
+    }
     console.error('Order creation error:', error);
     res.status(500).json({ message: 'Gagal membuat pesanan.' });
   }

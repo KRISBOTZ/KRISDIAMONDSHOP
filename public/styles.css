@@ -183,6 +183,13 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .orbit-one { top: 20px; right: 4%; }
 .orbit-two { top: 70px; right: 13%; width: 185px; height: 185px; border-color: rgba(164, 120, 255, .14); }
 .hero-art-overlay { position: absolute; z-index: 2; inset: auto 0 24px; height: 1px; background: linear-gradient(90deg, transparent, #9c64ff, #d6bdff, transparent); box-shadow: 0 0 18px #8542ff; }
+.hero-art > img.banner-change { animation: banner-fade .45s ease both; }
+@keyframes banner-fade { from { opacity: .35; } to { opacity: .84; } }
+.hero-carousel-controls { position: absolute; z-index: 4; right: 0; bottom: 38px; left: 0; display: flex; align-items: center; justify-content: center; gap: 12px; }
+.hero-carousel-controls > button { display: grid; width: 30px; height: 30px; place-items: center; border: 1px solid rgba(220,205,255,.35); border-radius: 50%; color: #fff; background: rgba(15,12,34,.78); cursor: pointer; font-size: 20px; line-height: 1; }
+#hero-banner-dots { display: flex; align-items: center; gap: 6px; }
+#hero-banner-dots button { width: 7px; height: 7px; padding: 0; border: 0; border-radius: 50%; background: rgba(255,255,255,.55); cursor: pointer; }
+#hero-banner-dots button.active { width: 19px; border-radius: 999px; background: #d3baff; }
 .hero-float-card { position: absolute; z-index: 3; display: flex; align-items: center; gap: 10px; border: 1px solid rgba(211, 192, 255, .19); border-radius: 15px; background: rgba(18, 15, 41, .83); box-shadow: 0 12px 42px rgba(0,0,0,.35); backdrop-filter: blur(12px); }
 .hero-float-card span:not(.status-spark):not(.discount-icon) { display: grid; gap: 3px; }
 .hero-float-card strong { font-size: 11px; }
@@ -401,6 +408,14 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .textarea { min-height: 96px; padding: 11px 12px; resize: vertical; }
 .form-feedback { margin: 2px 0; color: #ffaaa9; font-size: 10px; line-height: 1.5; }
 .form-feedback.success { color: #8de4ba; }
+.customer-auth-dialog { width: min(440px, calc(100% - 28px)); max-width: none; padding: 0; border: 1px solid var(--line-strong); border-radius: 20px; color: var(--text); background: var(--surface); box-shadow: var(--shadow); }
+.customer-auth-dialog::backdrop { background: rgba(4,3,13,.78); backdrop-filter: blur(5px); }
+.customer-auth-card { position: relative; display: grid; gap: 14px; padding: 28px; }
+.customer-auth-card h2 { margin: 0; font: 700 24px "Space Grotesk",sans-serif; }
+.customer-auth-card > p:not(.form-feedback) { margin: -7px 0 3px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.customer-auth-card label { display: grid; gap: 7px; color: #d5d0e7; font-size: 11px; }
+.customer-auth-close { position: absolute; top: 14px; right: 14px; width: 32px; height: 32px; border: 1px solid var(--line); border-radius: 50%; color: var(--text); background: transparent; cursor: pointer; font-size: 20px; }
+.customer-auth-switch { border: 0; color: var(--purple-light); background: transparent; cursor: pointer; font-size: 11px; }
 .payment-method-preview, .payment-order-details { display: grid; justify-items: start; gap: 8px; margin-top: 9px; padding: 10px; border: 1px solid rgba(175,160,218,.1); border-radius: 10px; background: rgba(255,255,255,.025); }
 .payment-method-preview img, .payment-order-details img { max-width: min(100%,240px); max-height: 240px; border-radius: 8px; object-fit: contain; }
 .payment-method-preview p, .payment-order-details p { margin: 0; color: #b6b0c6; font-size: 10px; line-height: 1.6; white-space: pre-line; }
@@ -561,6 +576,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .header-search { display: none; }
   .header-actions { gap: 7px; }
   .header-actions > .button { display: none; }
+  .header-actions > #customer-account-button { display: inline-flex; max-width: 122px; overflow: hidden; padding-inline: 10px; text-overflow: ellipsis; white-space: nowrap; }
   .hero-section { padding-top: 28px; }
   .hero-layout { grid-template-columns: 1fr; }
   .hero-copy { padding: 0 3px; }

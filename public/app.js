@@ -11,10 +11,199 @@ const state = {
   adminGames: [],
   paymentMethods: [],
   siteContent: {},
-  siteSettings: {}
+  siteSettings: {},
+  customerAccount: null,
+  customerAuthConfig: null,
+  heroBannerIndex: 0,
+  heroBannerTimer: null,
+  heroBannerUrls: []
 };
 
 const API_BASE = '/api';
+const CUSTOMER_SESSION_KEY = 'customerAuthSession';
+
+async function getCustomerAuthConfig() {
+  if (state.customerAuthConfig) return state.customerAuthConfig;
+  state.customerAuthConfig = await fetchJson(`${API_BASE}/customer-auth/config`);
+  return state.customerAuthConfig;
+}
+
+async function customerAuthRequest(path, body, method = 'POST') {
+  const config = await getCustomerAuthConfig();
+  const response = await fetch(`${config.supabaseUrl}/auth/v1/${path}`, {
+    method,
+    headers: {
+      apikey: config.anonKey,
+      'Content-Type': 'application/json'
+    },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.msg || payload.message || payload.error_description || 'Permintaan akun gagal.');
+  return payload;
+}
+
+function saveCustomerSession(session) {
+  const expiresAt = session.expires_at || Math.floor(Date.now() / 1000) + Number(session.expires_in || 3600);
+  localStorage.setItem(CUSTOMER_SESSION_KEY, JSON.stringify({
+    access_token: session.access_token,
+    refresh_token: session.refresh_token,
+    expires_at: expiresAt
+  }));
+}
+
+async function refreshCustomerSession(session) {
+  if (!session?.refresh_token) return null;
+  try {
+    const refreshed = await customerAuthRequest('token?grant_type=refresh_token', { refresh_token: session.refresh_token });
+    saveCustomerSession(refreshed);
+    return refreshed;
+  } catch {
+    localStorage.removeItem(CUSTOMER_SESSION_KEY);
+    return null;
+  }
+}
+
+async function initializeCustomerAccount() {
+  const hash = new URLSearchParams(window.location.hash.slice(1));
+  const accessToken = hash.get('access_token');
+  const refreshToken = hash.get('refresh_token');
+  if (accessToken && refreshToken) {
+    saveCustomerSession({
+      access_token: accessToken,
+      refresh_token: refreshToken,
+      expires_in: hash.get('expires_in')
+    });
+    history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+  }
+  try {
+    const config = await getCustomerAuthConfig();
+    let session = JSON.parse(localStorage.getItem(CUSTOMER_SESSION_KEY) || 'null');
+    if (!session?.access_token) return updateCustomerAccountUI();
+    if (Number(session.expires_at || 0) <= Math.floor(Date.now() / 1000) + 60) {
+      session = await refreshCustomerSession(session);
+      if (!session) return updateCustomerAccountUI();
+    }
+    let response = await fetch(`${config.supabaseUrl}/auth/v1/user`, {
+      headers: { apikey: config.anonKey, Authorization: `Bearer ${session.access_token}` }
+    });
+    if (response.status === 401) {
+      session = await refreshCustomerSession(session);
+      if (!session) return updateCustomerAccountUI();
+      response = await fetch(`${config.supabaseUrl}/auth/v1/user`, {
+        headers: { apikey: config.anonKey, Authorization: `Bearer ${session.access_token}` }
+      });
+    }
+    if (!response.ok) {
+      localStorage.removeItem(CUSTOMER_SESSION_KEY);
+      state.customerAccount = null;
+    } else {
+      state.customerAccount = await response.json();
+    }
+  } catch (error) {
+    console.error('Customer account initialization failed:', error);
+  }
+  updateCustomerAccountUI();
+}
+
+function updateCustomerAccountUI() {
+  const button = document.getElementById('customer-account-button');
+  if (button) button.textContent = state.customerAccount?.email || 'Login';
+  const email = document.getElementById('customer-email');
+  if (email && state.customerAccount?.email) {
+    email.value = state.customerAccount.email;
+    email.readOnly = true;
+  } else if (email) {
+    email.readOnly = false;
+  }
+  loadPublicVouchers();
+}
+
+function setupCustomerAccountUI() {
+  const dialog = document.getElementById('customer-auth-dialog');
+  const form = document.getElementById('customer-auth-form');
+  const accountButton = document.getElementById('customer-account-button');
+  const switchButton = document.getElementById('customer-auth-switch');
+  const nameLabel = document.getElementById('customer-name-label');
+  const nameInput = document.getElementById('customer-auth-name');
+  const title = document.getElementById('customer-auth-title');
+  const description = document.getElementById('customer-auth-description');
+  const submit = document.getElementById('customer-auth-submit');
+  const feedback = document.getElementById('customer-auth-feedback');
+  let registering = false;
+  const setMode = (isRegistering) => {
+    registering = isRegistering;
+    title.textContent = registering ? 'Buat akun pelanggan' : 'Masuk ke akun';
+    description.textContent = registering
+      ? 'Daftar dengan email aktif. Kami akan mengirim tautan verifikasi sebelum akun dapat digunakan.'
+      : 'Masuk untuk melihat voucher khusus akun dan menggunakannya satu kali.';
+    submit.textContent = registering ? 'Daftar' : 'Masuk';
+    switchButton.textContent = registering ? 'Sudah punya akun? Masuk' : 'Belum punya akun? Daftar';
+    nameLabel.hidden = !registering;
+    nameInput.required = registering;
+    document.getElementById('customer-auth-password').autocomplete = registering ? 'new-password' : 'current-password';
+  };
+  accountButton?.addEventListener('click', () => {
+    if (state.customerAccount) {
+      if (confirm(`Keluar dari akun ${state.customerAccount.email}?`)) {
+        localStorage.removeItem(CUSTOMER_SESSION_KEY);
+        state.customerAccount = null;
+        updateCustomerAccountUI();
+      }
+      return;
+    }
+    setMode(false);
+    feedback.hidden = true;
+    dialog?.showModal();
+  });
+  document.getElementById('customer-auth-close')?.addEventListener('click', () => dialog?.close());
+  switchButton?.addEventListener('click', () => {
+    setMode(!registering);
+    feedback.hidden = true;
+    feedback.classList.remove('success');
+  });
+  form?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const button = document.getElementById('customer-auth-submit');
+    button.disabled = true;
+    feedback.hidden = true;
+    try {
+      const emailValue = document.getElementById('customer-auth-email').value.trim().toLowerCase();
+      const password = document.getElementById('customer-auth-password').value;
+      if (registering) {
+        const result = await customerAuthRequest(
+          `signup?redirect_to=${encodeURIComponent(`${window.location.origin}/`)}`,
+          { email: emailValue, password, data: { full_name: nameInput.value.trim() } }
+        );
+        if (result.access_token && result.user?.email_confirmed_at) {
+          saveCustomerSession(result);
+          state.customerAccount = result.user;
+          updateCustomerAccountUI();
+          dialog.close();
+        } else {
+          feedback.textContent = 'Pendaftaran berhasil. Buka email verifikasi dari Supabase untuk mengaktifkan akun.';
+          feedback.classList.add('success');
+          feedback.hidden = false;
+        }
+      } else {
+        const result = await customerAuthRequest('token?grant_type=password', { email: emailValue, password });
+        if (!result.user?.email_confirmed_at) throw new Error('Verifikasi email terlebih dahulu sebelum login.');
+        saveCustomerSession(result);
+        state.customerAccount = result.user;
+        updateCustomerAccountUI();
+        dialog.close();
+      }
+    } catch (error) {
+      feedback.textContent = getErrorMessage(error, 'Tidak dapat memproses akun.');
+      feedback.classList.remove('success');
+      feedback.hidden = false;
+    } finally {
+      button.disabled = false;
+    }
+  });
+  setMode(false);
+  initializeCustomerAccount();
+}
 
 function formatRupiah(value) {
   return new Intl.NumberFormat('id-ID', {
@@ -121,10 +310,9 @@ function applySiteContentToMetadata(page) {
 
 function applySiteSettings(settings) {
   state.siteSettings = { admin_fee: '1500', ...(settings || {}) };
-  const heroBanner = document.getElementById('hero-banner-image');
-  if (heroBanner && state.siteSettings.hero_banner_url) {
-    heroBanner.src = state.siteSettings.hero_banner_url;
-  }
+  applyHeroBanners(state.siteSettings);
+  const aboutBanner = document.getElementById('about-banner-image');
+  if (aboutBanner) aboutBanner.src = state.siteSettings.about_banner_url || aboutBanner.dataset.defaultSrc || aboutBanner.src;
   document.querySelectorAll('.brand-mark').forEach((mark) => {
     mark.classList.toggle('has-custom-logo', Boolean(state.siteSettings.brand_logo_url));
     mark.innerHTML = state.siteSettings.brand_logo_url
@@ -229,6 +417,16 @@ async function fetchJson(url, options = {}) {
     const token = localStorage.getItem('adminSessionToken');
     if (token) headers.Authorization = `Bearer ${token}`;
   }
+  if (!url.includes('/api/admin/')
+    && ['/api/orders', '/api/vouchers/validate', '/api/public-vouchers'].some((path) => url.includes(path))) {
+    try {
+      const session = JSON.parse(localStorage.getItem(CUSTOMER_SESSION_KEY) || 'null');
+      if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
+    } catch (error) {
+      console.error('Customer account session is invalid:', error);
+      localStorage.removeItem(CUSTOMER_SESSION_KEY);
+    }
+  }
   const response = await fetch(url, {
     ...options,
     headers
@@ -281,6 +479,67 @@ async function uploadImageFile(file) {
 
 function getPageMode() {
   return window.location.pathname.includes('/admin') ? 'admin' : 'home';
+}
+
+function getHeroBannerUrls(settings) {
+  try {
+    const urls = JSON.parse(settings.hero_banner_urls || '[]');
+    if (Array.isArray(urls)) return urls.filter((url) => typeof url === 'string' && url.trim());
+  } catch (error) {
+    console.error('Hero banner settings are invalid:', error);
+  }
+  return settings.hero_banner_url ? [settings.hero_banner_url] : [];
+}
+
+function showHeroBanner(index) {
+  const image = document.getElementById('hero-banner-image');
+  if (!image || !state.heroBannerUrls.length) return;
+  state.heroBannerIndex = (index + state.heroBannerUrls.length) % state.heroBannerUrls.length;
+  image.src = state.heroBannerUrls[state.heroBannerIndex];
+  image.classList.remove('banner-change');
+  void image.offsetWidth;
+  image.classList.add('banner-change');
+  const dots = document.getElementById('hero-banner-dots');
+  dots?.querySelectorAll('button').forEach((button, buttonIndex) => {
+    button.classList.toggle('active', buttonIndex === state.heroBannerIndex);
+    button.setAttribute('aria-current', buttonIndex === state.heroBannerIndex ? 'true' : 'false');
+  });
+}
+
+function applyHeroBanners(settings) {
+  const urls = getHeroBannerUrls(settings);
+  const changed = urls.join('\n') !== state.heroBannerUrls.join('\n');
+  state.heroBannerUrls = urls;
+  const image = document.getElementById('hero-banner-image');
+  const controls = document.getElementById('hero-carousel-controls');
+  const dots = document.getElementById('hero-banner-dots');
+  if (!urls.length) {
+    window.clearInterval(state.heroBannerTimer);
+    state.heroBannerTimer = null;
+    if (controls) controls.hidden = true;
+    dots?.replaceChildren();
+    if (image?.dataset.defaultSrc && state.heroBannerUrls.length === 0) image.src = image.dataset.defaultSrc;
+    return;
+  }
+  if (changed) {
+    state.heroBannerIndex = 0;
+    if (dots) {
+      dots.replaceChildren(...urls.map((_, index) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.setAttribute('aria-label', `Tampilkan banner ${index + 1}`);
+        button.addEventListener('click', () => showHeroBanner(index));
+        return button;
+      }));
+    }
+  }
+  if (controls) controls.hidden = urls.length < 2;
+  showHeroBanner(state.heroBannerIndex);
+  window.clearInterval(state.heroBannerTimer);
+  state.heroBannerTimer = null;
+  if (image && urls.length > 1 && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    state.heroBannerTimer = window.setInterval(() => showHeroBanner(state.heroBannerIndex + 1), 5000);
+  }
 }
 
 async function loadPublicVouchers() {
@@ -626,6 +885,7 @@ async function handleCheckoutSubmit(event) {
     const targetOrderId = result.order?.id || '';
     alert(`Pesanan berhasil dibuat. ID Pesanan: ${targetOrderId}`);
     document.getElementById('checkout-form').reset();
+      updateCustomerAccountUI();
     if (targetOrderId) {
       document.getElementById('order-id-input').value = targetOrderId;
       await getOrderResult(targetOrderId);
@@ -1075,8 +1335,11 @@ async function initAdminPage() {
       document.getElementById('admin-payments').scrollIntoView({ behavior: 'smooth', block: 'center' });
     }));
     container.querySelectorAll('[data-use-hero]').forEach((button) => button.addEventListener('click', () => {
-      document.getElementById('hero-banner-url').value = button.dataset.useHero;
-      document.getElementById('hero-banner-url').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const inputs = [...document.querySelectorAll('[data-hero-banner-url]')];
+      const urls = inputs.map((input) => input.value.trim()).filter(Boolean);
+      if (!urls.includes(button.dataset.useHero)) urls.push(button.dataset.useHero);
+      renderHeroBannerUrlList(urls.slice(0, 10));
+      document.getElementById('hero-banner-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
     }));
     container.querySelectorAll('[data-use-site-logo]').forEach((button) => button.addEventListener('click', () => {
       document.getElementById('brand-logo-url').value = button.dataset.useSiteLogo;
@@ -1104,7 +1367,13 @@ async function initAdminPage() {
         <td>${voucher.discount_type === 'percent' ? `${voucher.discount_value}%` : formatRupiah(voucher.discount_value)}</td>
         <td>${voucher.uses}${voucher.max_uses ? ` / ${voucher.max_uses}` : ' / ∞'}</td>
         <td>${voucher.starts_at ? `Mulai ${new Date(voucher.starts_at).toLocaleString('id-ID')}<br />` : ''}${voucher.expires_at ? `Sampai ${new Date(voucher.expires_at).toLocaleString('id-ID')}` : 'Tanpa batas'}</td>
-        <td>${voucher.active ? 'Aktif' : 'Nonaktif'} · ${voucher.is_public ? 'Publik' : 'Private'}</td>
+        <td>${voucher.active ? 'Aktif' : 'Nonaktif'} · ${voucher.is_public ? 'Publik' : 'Private'}
+          <br /><small>${{
+            everyone: 'Semua pengunjung',
+            registered: 'Akun terverifikasi',
+            new_accounts: 'Akun baru',
+            existing_accounts: 'Akun lama'
+          }[voucher.audience || 'everyone']}</small></td>
         <td><button class="button button-glass button-small" type="button" data-edit-voucher="${escapeHtml(voucher.code)}">Edit</button><button class="button button-danger button-small" type="button" data-delete-voucher="${escapeHtml(voucher.code)}">Hapus</button></td>
       </tr>
     `).join('') : '<tr><td colspan="6"><div class="empty-state">Belum ada voucher.</div></td></tr>';
@@ -1121,6 +1390,7 @@ async function initAdminPage() {
       document.getElementById('voucher-expires-at').value = toLocalDateTimeInput(voucher.expires_at);
       document.getElementById('voucher-active').checked = Boolean(voucher.active);
       document.getElementById('voucher-is-public').checked = Boolean(voucher.is_public);
+      document.getElementById('voucher-audience').value = voucher.audience || 'everyone';
       document.getElementById('save-voucher-button').textContent = 'Simpan perubahan';
       document.getElementById('admin-vouchers').scrollIntoView({ behavior: 'smooth', block: 'start' });
     }));
@@ -1224,6 +1494,37 @@ async function initAdminPage() {
     renderSiteTextEntries(document.getElementById('site-text-search')?.value || '');
   };
 
+  const renderHeroBannerUrlList = (urls) => {
+    const container = document.getElementById('hero-banner-url-list');
+    if (!container) return;
+    container.replaceChildren(...urls.map((url, index) => {
+      const row = document.createElement('div');
+      row.className = 'hero-banner-url-row';
+      const label = document.createElement('label');
+      label.textContent = `Banner ${index + 1} URL`;
+      const input = document.createElement('input');
+      input.className = 'input';
+      input.type = 'url';
+      input.placeholder = 'https://...';
+      input.value = url;
+      input.dataset.heroBannerUrl = '';
+      label.append(input);
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'button button-danger button-small';
+      remove.textContent = 'Hapus';
+      remove.setAttribute('aria-label', `Hapus banner ${index + 1}`);
+      remove.addEventListener('click', () => {
+        const remaining = [...container.querySelectorAll('[data-hero-banner-url]')]
+          .map((field) => field.value.trim());
+        remaining.splice(index, 1);
+        renderHeroBannerUrlList(remaining);
+      });
+      row.append(label, remove);
+      return row;
+    }));
+  };
+
   const loadAdminSiteContent = async () => {
     const [content, settings] = await Promise.all([
       fetchJson(`${API_BASE}/site-content`),
@@ -1231,10 +1532,9 @@ async function initAdminPage() {
     ]);
     state.siteContent = content.items || {};
     applySiteSettings(settings.items || {});
-    const brandLogoUrl = document.getElementById('brand-logo-url');
-    if (brandLogoUrl) brandLogoUrl.value = state.siteSettings.brand_logo_url || '';
-    const heroBannerUrl = document.getElementById('hero-banner-url');
-    if (heroBannerUrl) heroBannerUrl.value = state.siteSettings.hero_banner_url || '';
+    document.getElementById('brand-logo-url').value = state.siteSettings.brand_logo_url || '';
+    renderHeroBannerUrlList(getHeroBannerUrls(state.siteSettings));
+    document.getElementById('about-banner-url').value = state.siteSettings.about_banner_url || '';
     let contacts = [];
     try {
       contacts = JSON.parse(state.siteSettings.contact_links || '[]');
@@ -1306,9 +1606,43 @@ async function initAdminPage() {
     }));
   };
 
+  const loadAdminCustomers = async () => {
+    const table = document.getElementById('admin-customer-table');
+    if (!table) return;
+    const result = await fetchJson(`${API_BASE}/admin/customers`);
+    const customers = result.items || [];
+    table.innerHTML = customers.length ? customers.map((customer) => `
+      <tr>
+        <td>${escapeHtml(customer.name || 'Pelanggan')}</td>
+        <td>${escapeHtml(customer.email || '-')}</td>
+        <td>${customer.createdAt ? new Date(customer.createdAt).toLocaleString('id-ID') : '-'}</td>
+        <td>${customer.isActive ? 'Aktif' : 'Nonaktif'}</td>
+        <td><button class="button ${customer.isActive ? 'button-danger' : 'button-glass'} button-small"
+          type="button" data-customer-id="${escapeHtml(customer.id)}" data-customer-active="${!customer.isActive}">
+          ${customer.isActive ? 'Nonaktifkan' : 'Aktifkan'}
+        </button></td>
+      </tr>
+    `).join('') : '<tr><td colspan="5"><div class="empty-state">Belum ada akun pelanggan.</div></td></tr>';
+    table.querySelectorAll('[data-customer-id]').forEach((button) => button.addEventListener('click', async () => {
+      const makeActive = button.dataset.customerActive === 'true';
+      button.disabled = true;
+      try {
+        const result = await fetchJson(`${API_BASE}/admin/customers/${encodeURIComponent(button.dataset.customerId)}/active`, {
+          method: 'PATCH',
+          body: JSON.stringify({ isActive: makeActive })
+        });
+        setFeatureFeedback('customer-admin-feedback', result.message, true);
+        await loadAdminCustomers();
+      } catch (error) {
+        setFeatureFeedback('customer-admin-feedback', getErrorMessage(error, 'Gagal memperbarui status akun.'));
+        button.disabled = false;
+      }
+    }));
+  };
+
   const loadAdminFeatures = async () => {
-    const loaders = [loadAdminProducts, loadAdminCategories, loadAdminGallery, loadAdminVouchers, loadAdminSiteContent, loadAdminPaymentMethods, loadAdminContactMessages];
-    const feedbackIds = ['product-feedback', 'category-feedback', 'gallery-feedback', 'voucher-feedback', 'site-content-feedback', 'payment-method-feedback', 'contact-messages-feedback'];
+    const loaders = [loadAdminProducts, loadAdminCategories, loadAdminGallery, loadAdminVouchers, loadAdminSiteContent, loadAdminPaymentMethods, loadAdminContactMessages, loadAdminCustomers];
+    const feedbackIds = ['product-feedback', 'category-feedback', 'gallery-feedback', 'voucher-feedback', 'site-content-feedback', 'payment-method-feedback', 'contact-messages-feedback', 'customer-admin-feedback'];
     await Promise.all(loaders.map(async (loader, index) => {
       try {
         await loader();
@@ -1489,26 +1823,63 @@ async function initAdminPage() {
     }
   });
 
+  document.getElementById('add-hero-banner-url')?.addEventListener('click', () => {
+    const inputs = [...document.querySelectorAll('[data-hero-banner-url]')];
+    if (inputs.length >= 10) {
+      setFeatureFeedback('hero-banner-feedback', 'Maksimal 10 banner dapat disimpan.');
+      return;
+    }
+    renderHeroBannerUrlList([...inputs.map((input) => input.value), '']);
+    document.querySelector('#hero-banner-url-list .hero-banner-url-row:last-child input')?.focus();
+  });
   document.getElementById('hero-banner-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
     const button = form.querySelector('button[type="submit"]');
     button.disabled = true;
     try {
-      let heroBannerUrl = document.getElementById('hero-banner-url').value.trim();
-      const file = document.getElementById('hero-banner-file').files[0];
-      if (file) heroBannerUrl = await uploadImageFile(file);
+      const heroBannerUrls = [...document.querySelectorAll('[data-hero-banner-url]')]
+        .map((input) => input.value.trim()).filter(Boolean);
+      const files = [...document.getElementById('hero-banner-files').files];
+      if (heroBannerUrls.length + files.length > 10) throw new Error('Maksimal 10 banner dapat disimpan.');
+      for (const file of files) heroBannerUrls.push(await uploadImageFile(file));
       const result = await fetchJson(`${API_BASE}/admin/site-settings`, {
         method: 'PATCH',
-        body: JSON.stringify({ heroBannerUrl })
+        body: JSON.stringify({ heroBannerUrls })
       });
       setFeatureFeedback('hero-banner-feedback', result.message, true);
-      state.siteSettings.hero_banner_url = heroBannerUrl;
+      state.siteSettings.hero_banner_urls = JSON.stringify(result.item.heroBannerUrls || heroBannerUrls);
+      state.siteSettings.hero_banner_url = result.item.heroBannerUrl || heroBannerUrls[0] || '';
       applySiteSettings(state.siteSettings);
       form.reset();
-      document.getElementById('hero-banner-url').value = heroBannerUrl;
+      renderHeroBannerUrlList(heroBannerUrls);
     } catch (error) {
       setFeatureFeedback('hero-banner-feedback', getErrorMessage(error, 'Gagal memperbarui banner utama.'));
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  document.getElementById('about-banner-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const button = form.querySelector('button[type="submit"]');
+    button.disabled = true;
+    try {
+      let aboutBannerUrl = document.getElementById('about-banner-url').value.trim();
+      const file = document.getElementById('about-banner-file').files[0];
+      if (file) aboutBannerUrl = await uploadImageFile(file);
+      const result = await fetchJson(`${API_BASE}/admin/site-settings`, {
+        method: 'PATCH',
+        body: JSON.stringify({ aboutBannerUrl })
+      });
+      state.siteSettings.about_banner_url = aboutBannerUrl;
+      applySiteSettings(state.siteSettings);
+      setFeatureFeedback('about-banner-feedback', result.message, true);
+      form.reset();
+      document.getElementById('about-banner-url').value = aboutBannerUrl;
+    } catch (error) {
+      setFeatureFeedback('about-banner-feedback', getErrorMessage(error, 'Gagal memperbarui gambar bagian Tentang.'));
     } finally {
       button.disabled = false;
     }
@@ -1668,7 +2039,8 @@ async function initAdminPage() {
           startsAt: start ? new Date(start).toISOString() : null,
           expiresAt: expiry ? new Date(expiry).toISOString() : null,
           active: document.getElementById('voucher-active').checked,
-          isPublic: document.getElementById('voucher-is-public').checked
+          isPublic: document.getElementById('voucher-is-public').checked,
+          audience: document.getElementById('voucher-audience').value
         })
       });
       resetVoucherForm();
@@ -1783,6 +2155,18 @@ async function initAdminPage() {
     }
   });
   document.getElementById('refresh-admin-data')?.addEventListener('click', refreshData);
+  document.getElementById('refresh-customers')?.addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      await loadAdminCustomers();
+      setFeatureFeedback('customer-admin-feedback', 'Daftar pelanggan berhasil diperbarui.', true);
+    } catch (error) {
+      setFeatureFeedback('customer-admin-feedback', getErrorMessage(error, 'Gagal memuat akun pelanggan.'));
+    } finally {
+      button.disabled = false;
+    }
+  });
   document.getElementById('admin-top-search')?.addEventListener('input', (event) => {
     const orderSearch = document.getElementById('admin-order-search');
     if (!orderSearch) return;
@@ -1827,6 +2211,9 @@ async function initAdminPage() {
 }
 
 function setupHomePage() {
+  setupCustomerAccountUI();
+  document.getElementById('hero-banner-prev')?.addEventListener('click', () => showHeroBanner(state.heroBannerIndex - 1));
+  document.getElementById('hero-banner-next')?.addEventListener('click', () => showHeroBanner(state.heroBannerIndex + 1));
   if (!new URLSearchParams(window.location.search).has('copy-scan')) {
     loadSiteContentOverrides();
   }

@@ -146,16 +146,28 @@
               <p id="brand-logo-feedback" class="form-feedback" role="status" hidden></p>
             </div>
             <div class="admin-subsection">
-              <h3>Banner utama website</h3>
+              <h3>Banner utama otomatis</h3>
               <form id="hero-banner-form" class="gallery-upload-row">
-                <label for="hero-banner-url">URL gambar banner</label>
-                <input id="hero-banner-url" class="input" type="url" placeholder="Pilih gambar dari galeri atau tempel URL" />
-                <label for="hero-banner-file">Upload banner</label>
-                <input id="hero-banner-file" class="input" type="file" accept="image/jpeg,image/png,image/webp" />
-                <small>JPG, PNG, atau WEBP; maksimal 15 MB.</small>
-                <button class="button button-primary" type="submit">Simpan banner utama</button>
+                <div id="hero-banner-url-list" class="hero-banner-url-list"></div>
+                <button class="button button-glass button-small" id="add-hero-banner-url" type="button">+ Tambah URL banner</button>
+                <label for="hero-banner-files">Upload beberapa gambar banner</label>
+                <input id="hero-banner-files" class="input" type="file" accept="image/jpeg,image/png,image/webp" multiple />
+                <small>JPG, PNG, atau WEBP; maksimal 15 MB per gambar, maksimal 10 banner. Banner berganti otomatis.</small>
+                <button class="button button-primary" type="submit">Simpan semua banner</button>
               </form>
               <p id="hero-banner-feedback" class="form-feedback" role="status" hidden></p>
+            </div>
+            <div class="admin-subsection">
+              <h3>Banner bagian Tentang</h3>
+              <form id="about-banner-form" class="gallery-upload-row">
+                <label for="about-banner-url">URL gambar Tentang</label>
+                <input id="about-banner-url" class="input" type="url" placeholder="Pilih dari galeri atau tempel URL" />
+                <label for="about-banner-file">Upload gambar Tentang</label>
+                <input id="about-banner-file" class="input" type="file" accept="image/jpeg,image/png,image/webp" />
+                <small>JPG, PNG, atau WEBP; maksimal 15 MB.</small>
+                <button class="button button-primary" type="submit">Simpan gambar Tentang</button>
+              </form>
+              <p id="about-banner-feedback" class="form-feedback" role="status" hidden></p>
             </div>
             <div class="admin-subsection">
               <h3>Galeri gambar</h3>
@@ -236,11 +248,25 @@
               <label>Batas pemakaian<input id="voucher-max-uses" class="input" type="number" min="1" step="1" placeholder="Kosong = tanpa batas" /></label>
               <label>Mulai berlaku<input id="voucher-starts-at" class="input" type="datetime-local" /></label>
               <label>Berlaku sampai<input id="voucher-expires-at" class="input" type="datetime-local" /></label>
+              <label>Sasaran akun
+                <select id="voucher-audience" class="select">
+                  <option value="everyone">Semua pengunjung (termasuk tamu; login untuk memakai)</option>
+                  <option value="registered">Semua akun yang sudah verifikasi email</option>
+                  <option value="new_accounts">Akun yang mendaftar setelah voucher mulai berlaku</option>
+                  <option value="existing_accounts">Akun yang sudah ada sebelum voucher mulai berlaku</option>
+                </select>
+              </label>
               <label class="admin-check"><input id="voucher-active" type="checkbox" checked /> Aktif</label>
-              <label class="admin-check"><input id="voucher-is-public" type="checkbox" /> Tampilkan otomatis untuk semua pengunjung</label>
+              <label class="admin-check"><input id="voucher-is-public" type="checkbox" /> Tampilkan otomatis kepada pengunjung yang memenuhi sasaran</label>
               <div class="admin-form-actions admin-form-wide"><button class="button button-primary" id="save-voucher-button" type="submit">Buat voucher</button><button class="button button-glass" id="reset-voucher-form" type="button">Voucher baru / reset</button><p id="voucher-feedback" class="form-feedback" role="status" hidden></p></div>
             </form>
             <div class="table-wrap"><table class="data-table"><thead><tr><th>Kode</th><th>Diskon</th><th>Pemakaian</th><th>Masa berlaku</th><th>Status</th><th>Aksi</th></tr></thead><tbody id="admin-voucher-table"></tbody></table></div>
+          </section>
+
+          <section class="admin-panel admin-management-panel" id="admin-customers">
+            <div class="admin-panel-heading"><div><span class="section-kicker">AKUN PELANGGAN</span><h2>Kelola akun pelanggan</h2><p>Nonaktifkan akun untuk memblokir login dan penggunaan voucher. Daftar menampilkan maksimal 1.000 akun terbaru.</p></div><button class="button button-glass button-small" id="refresh-customers" type="button">Muat ulang</button></div>
+            <p id="customer-admin-feedback" class="form-feedback" role="status" hidden></p>
+            <div class="table-wrap"><table class="data-table"><thead><tr><th>Pelanggan</th><th>Email</th><th>Terdaftar</th><th>Status</th><th>Aksi</th></tr></thead><tbody id="admin-customer-table"><tr><td colspan="5"><div class="empty-state">Masuk untuk memuat akun pelanggan.</div></td></tr></tbody></table></div>
           </section>
 
           <section class="admin-panel admin-management-panel" id="admin-contacts">

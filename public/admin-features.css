@@ -60,6 +60,10 @@
 .gallery-upload-row { margin-bottom: 8px; }
 .gallery-upload-row label { color: #b8b2c8; font-size: 10px; font-weight: 600; }
 .gallery-upload-row input[type="file"] { flex: 1; min-width: 190px; }
+.hero-banner-url-list { display: grid; width: 100%; gap: 10px; }
+.hero-banner-url-row { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: end; gap: 8px; }
+.hero-banner-url-row label { display: grid; gap: 6px; }
+.hero-banner-url-row .button { min-width: 82px; }
 .image-gallery {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));

@@ -44,6 +44,33 @@ create table if not exists public.vouchers (
 alter table public.vouchers
   add column if not exists is_public boolean not null default false;
 
+alter table public.vouchers
+  add column if not exists audience text not null default 'everyone'
+  check (audience in ('everyone', 'registered', 'new_accounts', 'existing_accounts'));
+
+alter table public.orders
+  add column if not exists customer_account_id uuid references auth.users(id) on delete set null;
+
+create table if not exists public.voucher_redemptions (
+  id bigint generated always as identity primary key,
+  voucher_code text not null references public.vouchers(code) on delete cascade on update cascade,
+  customer_account_id uuid not null references auth.users(id) on delete cascade,
+  order_id text unique,
+  redeemed_at timestamptz not null default now(),
+  unique (voucher_code, customer_account_id),
+  constraint voucher_redemptions_order_id_fkey
+    foreign key (order_id) references public.orders(id) on delete set null
+);
+
+alter table public.voucher_redemptions alter column order_id drop not null;
+alter table public.voucher_redemptions drop constraint if exists voucher_redemptions_order_id_fkey;
+alter table public.voucher_redemptions
+  add constraint voucher_redemptions_order_id_fkey
+  foreign key (order_id) references public.orders(id) on delete set null;
+
+create index if not exists voucher_redemptions_customer_idx
+  on public.voucher_redemptions (customer_account_id, redeemed_at desc);
+
 create table if not exists public.payment_methods (
   id text primary key,
   name text not null unique,
@@ -73,9 +100,10 @@ alter table public.site_content enable row level security;
 alter table public.site_settings enable row level security;
 alter table public.vouchers enable row level security;
 alter table public.payment_methods enable row level security;
+alter table public.voucher_redemptions enable row level security;
 
-revoke all on public.categories, public.site_content, public.site_settings, public.vouchers, public.payment_methods from anon, authenticated;
-grant all on public.categories, public.site_content, public.site_settings, public.vouchers, public.payment_methods to service_role;
+revoke all on public.categories, public.site_content, public.site_settings, public.vouchers, public.payment_methods, public.voucher_redemptions from anon, authenticated;
+grant all on public.categories, public.site_content, public.site_settings, public.vouchers, public.payment_methods, public.voucher_redemptions to service_role;
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values (
