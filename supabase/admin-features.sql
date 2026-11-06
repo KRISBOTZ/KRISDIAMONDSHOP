@@ -33,17 +33,38 @@ create table if not exists public.vouchers (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.payment_methods (
+  id text primary key,
+  name text not null unique,
+  instructions text not null default '',
+  image_url text not null default '',
+  active boolean not null default true,
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 insert into public.vouchers (code, discount_type, discount_value, active)
 values ('KRIS15', 'percent', 15, true)
 on conflict (code) do nothing;
+
+insert into public.payment_methods (id, name, instructions, active, sort_order)
+values
+  ('qris', 'QRIS', 'Scan QRIS yang ditampilkan setelah pesanan dibuat.', true, 0),
+  ('dana', 'DANA', 'Selesaikan pembayaran menggunakan DANA.', true, 1),
+  ('gopay', 'GoPay', 'Selesaikan pembayaran menggunakan GoPay.', true, 2),
+  ('ovo', 'OVO', 'Selesaikan pembayaran menggunakan OVO.', true, 3),
+  ('transfer-bank', 'Transfer Bank', 'Hubungi admin untuk mendapatkan detail rekening.', true, 4)
+on conflict (id) do nothing;
 
 alter table public.categories enable row level security;
 alter table public.site_content enable row level security;
 alter table public.site_settings enable row level security;
 alter table public.vouchers enable row level security;
+alter table public.payment_methods enable row level security;
 
-revoke all on public.categories, public.site_content, public.site_settings, public.vouchers from anon, authenticated;
-grant all on public.categories, public.site_content, public.site_settings, public.vouchers to service_role;
+revoke all on public.categories, public.site_content, public.site_settings, public.vouchers, public.payment_methods from anon, authenticated;
+grant all on public.categories, public.site_content, public.site_settings, public.vouchers, public.payment_methods to service_role;
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values (

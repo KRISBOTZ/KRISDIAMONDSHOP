@@ -382,6 +382,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .textarea { min-height: 96px; padding: 11px 12px; resize: vertical; }
 .form-feedback { margin: 2px 0; color: #ffaaa9; font-size: 10px; line-height: 1.5; }
 .form-feedback.success { color: #8de4ba; }
+.payment-method-preview, .payment-order-details { display: grid; justify-items: start; gap: 8px; margin-top: 9px; padding: 10px; border: 1px solid rgba(175,160,218,.1); border-radius: 10px; background: rgba(255,255,255,.025); }
+.payment-method-preview img, .payment-order-details img { max-width: min(100%,240px); max-height: 240px; border-radius: 8px; object-fit: contain; background: #fff; }
+.payment-method-preview p, .payment-order-details p { margin: 0; color: #b6b0c6; font-size: 10px; line-height: 1.6; white-space: pre-line; }
+.payment-order-details h4 { margin: 0; color: #ddd4f3; font-size: 11px; }
 
 .site-footer { border-top: 1px solid var(--line); background: rgba(7,6,16,.8); }
 .footer-main { display: grid; grid-template-columns: 1.5fr repeat(3,1fr); gap: 36px; padding-block: 36px; }

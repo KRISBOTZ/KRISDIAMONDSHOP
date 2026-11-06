@@ -106,7 +106,6 @@
 .data-table td .button + .button { margin-left: 5px; }
 .data-table td .select { min-width: 122px; margin-bottom: 5px; }
 .form-feedback.success { color: #8de4ba; }
-
 @media (max-width: 760px) {
   .admin-heading-actions { justify-content: flex-start; }
   .admin-form-grid { grid-template-columns: 1fr; }

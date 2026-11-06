@@ -1,10 +1,12 @@
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
-const { randomUUID, timingSafeEqual } = require('crypto');
+const { randomUUID, randomBytes, createHmac, scryptSync, timingSafeEqual } = require('crypto');
 const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true }));
 const PORT = process.env.PORT || 3000;
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -201,30 +203,129 @@ function dbOrError(res) {
   return true;
 }
 
-function adminOnly(req, res, next) {
-  const expectedUsername = process.env.ADMIN_USERNAME;
-  const expectedPassword = process.env.ADMIN_PASSWORD;
-  const providedUsername = req.get('x-admin-username') || '';
-  const providedPassword = req.get('x-admin-password') || '';
-  if (!expectedUsername || !expectedPassword) {
-    res.status(503).json({ message: 'Akun admin belum dikonfigurasi di environment Vercel.' });
-    return;
-  }
+const ADMIN_SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 
-  const usernameMatches = constantTimeEqual(expectedUsername, providedUsername);
-  const passwordMatches = constantTimeEqual(expectedPassword, providedPassword);
-  if (!usernameMatches || !passwordMatches) {
-    res.status(401).json({ message: 'Username atau password admin tidak valid.' });
+async function getAdminAuthState() {
+  const { data, error } = await supabase.from('site_settings')
+    .select('key,value')
+    .in('key', ['admin_password_salt', 'admin_password_hash', 'admin_auth_version']);
+  if (error) throw error;
+  const settings = Object.fromEntries((data || []).map((item) => [item.key, item.value]));
+  return {
+    username: process.env.ADMIN_USERNAME || '',
+    salt: settings.admin_password_salt || '',
+    hash: settings.admin_password_hash || '',
+    version: settings.admin_auth_version || 'initial'
+  };
+}
+
+function signAdminSession(payload) {
+  const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const signature = createHmac('sha256', supabaseKey).update(encoded).digest('base64url');
+  return `${encoded}.${signature}`;
+}
+
+function verifyAdminSession(token) {
+  const [encoded, suppliedSignature, extra] = String(token || '').split('.');
+  if (!encoded || !suppliedSignature || extra) return null;
+  const expectedSignature = createHmac('sha256', supabaseKey).update(encoded).digest();
+  let actualSignature;
+  try {
+    actualSignature = Buffer.from(suppliedSignature, 'base64url');
+  } catch {
+    return null;
+  }
+  if (actualSignature.length !== expectedSignature.length || !timingSafeEqual(expectedSignature, actualSignature)) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
+    if (!payload.username || !payload.version || !Number.isInteger(payload.expiresAt) || payload.expiresAt <= Math.floor(Date.now() / 1000)) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+async function adminOnlyAsync(req, res, next) {
+  if (!dbOrError(res)) return;
+  const state = await getAdminAuthState();
+  const token = (req.get('authorization') || '').replace(/^Bearer\s+/i, '');
+  const session = verifyAdminSession(token);
+  if (!state.username || !session || session.username !== state.username || session.version !== state.version) {
+    res.status(401).json({ message: 'Sesi admin tidak valid atau sudah berakhir. Silakan login kembali.' });
     return;
   }
+  req.adminSession = session;
   next();
 }
+
+const adminOnly = asyncRoute(adminOnlyAsync);
 
 function constantTimeEqual(expected, provided) {
   const expectedBuffer = Buffer.from(expected);
   const providedBuffer = Buffer.from(provided);
   return expectedBuffer.length === providedBuffer.length && timingSafeEqual(expectedBuffer, providedBuffer);
 }
+
+function verifyAdminPassword(password, authState) {
+  if (authState.hash && authState.salt) {
+    const actualHash = scryptSync(password, authState.salt, 64);
+    const expectedHash = Buffer.from(authState.hash, 'hex');
+    return actualHash.length === expectedHash.length && timingSafeEqual(actualHash, expectedHash);
+  }
+  return Boolean(process.env.ADMIN_PASSWORD) && constantTimeEqual(process.env.ADMIN_PASSWORD, password);
+}
+
+function createAdminSession(username, version) {
+  const expiresAt = Math.floor(Date.now() / 1000) + ADMIN_SESSION_TTL_SECONDS;
+  return { token: signAdminSession({ username, version, expiresAt }), expiresAt };
+}
+
+async function saveAdminAuthSettings(settings) {
+  const rows = Object.entries(settings).map(([key, value]) => ({
+    key,
+    value,
+    updated_at: new Date().toISOString()
+  }));
+  const { error } = await supabase.from('site_settings').upsert(rows, { onConflict: 'key' });
+  if (error) throw error;
+}
+
+app.post('/api/admin/login', asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  const username = String(req.body?.username || '');
+  const password = String(req.body?.password || '');
+  const authState = await getAdminAuthState();
+  if (!authState.username || !password || !constantTimeEqual(authState.username, username) || !verifyAdminPassword(password, authState)) {
+    return res.status(401).json({ message: 'Username atau password admin tidak valid.' });
+  }
+  res.json({ ...createAdminSession(authState.username, authState.version), username: authState.username });
+}));
+
+app.post('/api/admin/change-password', adminOnly, asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  const currentPassword = String(req.body?.currentPassword || '');
+  const newPassword = String(req.body?.newPassword || '');
+  if (newPassword.length < 12 || newPassword.length > 200) {
+    return res.status(400).json({ message: 'Password baru harus terdiri dari 12 sampai 200 karakter.' });
+  }
+  const authState = await getAdminAuthState();
+  if (!verifyAdminPassword(currentPassword, authState)) {
+    return res.status(400).json({ message: 'Password saat ini tidak sesuai.' });
+  }
+  const salt = randomBytes(16).toString('hex');
+  const passwordHash = scryptSync(newPassword, salt, 64).toString('hex');
+  const version = randomUUID();
+  await saveAdminAuthSettings({
+    admin_password_salt: salt,
+    admin_password_hash: passwordHash,
+    admin_auth_version: version
+  });
+  res.json({
+    ...createAdminSession(authState.username, version),
+    username: authState.username,
+    message: 'Password admin berhasil diubah.'
+  });
+}));
 
 function normalizeGame(row) {
   return {
@@ -300,7 +401,16 @@ async function getOrderById(orderId) {
     .eq('order_id', orderId)
     .order('created_at', { ascending: true });
   if (historyError) throw historyError;
-  return getOrderPayload(order, history || []);
+  const { data: paymentMethod, error: paymentError } = await supabase.from('payment_methods')
+    .select('name,instructions,image_url')
+    .eq('name', order.payment_method)
+    .maybeSingle();
+  if (paymentError) throw paymentError;
+  return {
+    ...getOrderPayload(order, history || []),
+    paymentInstructions: paymentMethod?.instructions || '',
+    paymentImageUrl: paymentMethod?.image_url || ''
+  };
 }
 
 async function createNotification(userId, orderId, title, message) {
@@ -393,9 +503,6 @@ function validateGameInput(body, id = body?.id) {
   };
 }
 
-app.use(express.json({ limit: '1mb' }));
-app.use(express.urlencoded({ extended: true }));
-
 app.get('/api/health', (req, res) => {
   res.status(supabase ? 200 : 503).json({
     ok: Boolean(supabase),
@@ -467,9 +574,20 @@ app.get('/api/site-content', asyncRoute(async (req, res) => {
 
 app.get('/api/site-settings', asyncRoute(async (req, res) => {
   if (!dbOrError(res)) return;
-  const { data, error } = await supabase.from('site_settings').select('key,value');
+  const { data, error } = await supabase.from('site_settings').select('key,value').eq('key', 'hero_banner_url');
   if (error) throw error;
   res.json({ items: Object.fromEntries(data.map((item) => [item.key, item.value])) });
+}));
+
+app.get('/api/payment-methods', asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  const { data, error } = await supabase.from('payment_methods')
+    .select('id,name,instructions,image_url,sort_order')
+    .eq('active', true)
+    .order('sort_order')
+    .order('name');
+  if (error) throw error;
+  res.json({ items: data });
 }));
 
 app.post('/api/vouchers/validate', asyncRoute(async (req, res) => {
@@ -598,9 +716,18 @@ app.delete('/api/admin/gallery/:name', adminOnly, asyncRoute(async (req, res) =>
   if (!dbOrError(res)) return;
   const imageName = String(req.params.name || '');
   if (!/^[\w.-]+\.(?:jpg|png|webp)$/i.test(imageName)) return res.status(400).json({ message: 'Nama gambar tidak valid.' });
-  const { data: games, error: gameError } = await supabase.from('games').select('id').or(`logo.ilike.%${imageName}%,banner.ilike.%${imageName}%`);
-  if (gameError) throw gameError;
-  if (games?.length) return res.status(409).json({ message: 'Gambar masih dipakai produk. Ganti gambar produk terlebih dahulu.' });
+  const imagePattern = `%/${imageName}%`;
+  const [gamesResult, paymentMethodsResult, settingsResult] = await Promise.all([
+    supabase.from('games').select('id').or(`logo.ilike.${imagePattern},banner.ilike.${imagePattern}`),
+    supabase.from('payment_methods').select('id').ilike('image_url', imagePattern),
+    supabase.from('site_settings').select('key').eq('key', 'hero_banner_url').ilike('value', imagePattern)
+  ]);
+  if (gamesResult.error) throw gamesResult.error;
+  if (paymentMethodsResult.error) throw paymentMethodsResult.error;
+  if (settingsResult.error) throw settingsResult.error;
+  if (gamesResult.data?.length || paymentMethodsResult.data?.length || settingsResult.data?.length) {
+    return res.status(409).json({ message: 'Gambar masih digunakan. Ganti gambar pada produk, metode pembayaran, atau banner utama terlebih dahulu.' });
+  }
   const { error } = await supabase.storage.from('product-images').remove([imageName]);
   if (error) throw error;
   res.json({ message: 'Gambar berhasil dihapus.' });
@@ -657,6 +784,69 @@ app.get('/api/admin/vouchers', adminOnly, asyncRoute(async (req, res) => {
   res.json({ items: data });
 }));
 
+app.get('/api/admin/payment-methods', adminOnly, asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  const { data, error } = await supabase.from('payment_methods').select('*').order('sort_order').order('name');
+  if (error) throw error;
+  res.json({ items: data });
+}));
+
+function validatePaymentMethod(body, id) {
+  const name = String(body?.name || '').trim().slice(0, 80);
+  const instructions = String(body?.instructions || '').trim().slice(0, 1000);
+  const imageUrl = String(body?.imageUrl || '').trim();
+  const slug = String(id || body?.id || name).trim().toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
+  if (!name || !slug) return { error: 'Nama metode pembayaran wajib diisi.' };
+  if (imageUrl) {
+    try {
+      if (!['http:', 'https:'].includes(new URL(imageUrl).protocol)) throw new Error('invalid protocol');
+    } catch {
+      return { error: 'URL gambar pembayaran harus menggunakan HTTP atau HTTPS.' };
+    }
+  }
+  return {
+    method: {
+      id: slug,
+      name,
+      instructions,
+      image_url: imageUrl,
+      active: body?.active !== false,
+      sort_order: Number.isSafeInteger(Number(body?.sortOrder)) ? Number(body.sortOrder) : 0,
+      updated_at: new Date().toISOString()
+    }
+  };
+}
+
+app.post('/api/admin/payment-methods', adminOnly, asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  const { method, error: validationError } = validatePaymentMethod(req.body);
+  if (validationError) return res.status(400).json({ message: validationError });
+  const { data, error } = await supabase.from('payment_methods').insert(method).select('*').single();
+  if (error?.code === '23505') return res.status(409).json({ message: 'Nama atau ID metode pembayaran sudah digunakan.' });
+  if (error) throw error;
+  res.status(201).json({ item: data, message: 'Metode pembayaran berhasil ditambahkan.' });
+}));
+
+app.put('/api/admin/payment-methods/:id', adminOnly, asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  const { method, error: validationError } = validatePaymentMethod(req.body, req.params.id);
+  if (validationError) return res.status(400).json({ message: validationError });
+  const { data, error } = await supabase.from('payment_methods').update(method)
+    .eq('id', req.params.id).select('*').maybeSingle();
+  if (error?.code === '23505') return res.status(409).json({ message: 'Nama metode pembayaran sudah digunakan.' });
+  if (error) throw error;
+  if (!data) return res.status(404).json({ message: 'Metode pembayaran tidak ditemukan.' });
+  res.json({ item: data, message: 'Metode pembayaran berhasil diperbarui.' });
+}));
+
+app.delete('/api/admin/payment-methods/:id', adminOnly, asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  const { error } = await supabase.from('payment_methods').delete().eq('id', req.params.id);
+  if (error) throw error;
+  res.json({ message: 'Metode pembayaran berhasil dihapus.' });
+}));
+
 app.post('/api/admin/vouchers', adminOnly, asyncRoute(async (req, res) => {
   if (!dbOrError(res)) return;
   const code = String(req.body?.code || '').trim().toUpperCase();
@@ -710,6 +900,11 @@ app.post('/api/orders', async (req, res) => {
     if (!gameRow) return res.status(404).json({ message: 'Game tidak ditemukan' });
 
     const game = normalizeGame(gameRow);
+    const requestedPaymentMethod = String(paymentMethod || '').trim();
+    const { data: activePaymentMethod, error: paymentMethodError } = await supabase.from('payment_methods')
+      .select('name').eq('name', requestedPaymentMethod).eq('active', true).maybeSingle();
+    if (paymentMethodError) throw paymentMethodError;
+    if (!activePaymentMethod) return res.status(400).json({ message: 'Metode pembayaran tidak tersedia. Silakan pilih metode lain.' });
     const variant = game.variants.find((option) => option.key === variantKey);
     if (!variant) return res.status(400).json({ message: 'Pilihan nominal tidak valid' });
 
@@ -751,7 +946,7 @@ app.post('/api/orders', async (req, res) => {
       customer_phone: String(customerPhone).trim(),
       user_id_input: String(userIdInput).trim(),
       server_id: String(serverId || '').trim(),
-      payment_method: paymentMethod || 'QRIS',
+      payment_method: activePaymentMethod.name,
       voucher_code: voucher,
       payment_proof: null,
       note: note || '',
@@ -966,7 +1161,7 @@ app.get('*', (req, res, next) => {
 
 app.use((error, req, res, next) => {
   if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
-    return res.status(413).json({ message: 'Ukuran bukti pembayaran maksimal 5 MB.' });
+    return res.status(413).json({ message: 'Ukuran file maksimal 5 MB.' });
   }
   if (error.message?.startsWith('Format bukti pembayaran') || error.message?.startsWith('Format gambar')) {
     return res.status(400).json({ message: error.message });

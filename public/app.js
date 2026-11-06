@@ -9,6 +9,7 @@ const state = {
   orderPollTimer: null,
   adminOrders: [],
   adminGames: [],
+  paymentMethods: [],
   siteContent: {},
   siteSettings: {}
 };
@@ -21,6 +22,39 @@ function formatRupiah(value) {
     currency: 'IDR',
     maximumFractionDigits: 0
   }).format(Number(value || 0));
+}
+
+async function loadPublicPaymentMethods() {
+  const select = document.getElementById('payment-method');
+  if (!select) return;
+  try {
+    const result = await fetchJson(`${API_BASE}/payment-methods`);
+    state.paymentMethods = result.items || [];
+    select.innerHTML = state.paymentMethods.length
+      ? state.paymentMethods.map((method, index) => `<option value="${escapeHtml(method.name)}" ${index === 0 ? 'selected' : ''}>${escapeHtml(method.name)}</option>`).join('')
+      : '<option value="">Metode pembayaran belum tersedia</option>';
+    renderPaymentMethodPreview();
+  } catch (error) {
+    select.innerHTML = '<option value="">Metode pembayaran gagal dimuat</option>';
+    console.error('Payment methods load error:', error);
+  }
+}
+
+function renderPaymentMethodPreview() {
+  const select = document.getElementById('payment-method');
+  const container = document.getElementById('payment-method-preview');
+  if (!select || !container) return;
+  const method = state.paymentMethods.find((item) => item.name === select.value);
+  if (!method) {
+    container.hidden = true;
+    container.innerHTML = '';
+    return;
+  }
+  const image = method.image_url
+    ? `<img src="${escapeHtml(method.image_url)}" alt="QR ${escapeHtml(method.name)}" loading="lazy" />`
+    : '';
+  container.innerHTML = `${image}${method.instructions ? `<p>${escapeHtml(method.instructions)}</p>` : ''}`;
+  container.hidden = !image && !method.instructions;
 }
 
 function escapeHtml(value) {
@@ -130,10 +164,8 @@ async function fetchJson(url, options = {}) {
     headers['Content-Type'] = 'application/json';
   }
   if (url.includes('/api/admin/')) {
-    const adminUsername = sessionStorage.getItem('adminUsername');
-    const adminPassword = sessionStorage.getItem('adminPassword');
-    if (adminUsername) headers['x-admin-username'] = adminUsername;
-    if (adminPassword) headers['x-admin-password'] = adminPassword;
+    const token = localStorage.getItem('adminSessionToken');
+    if (token) headers.Authorization = `Bearer ${token}`;
   }
   const response = await fetch(url, {
     ...options,
@@ -142,9 +174,27 @@ async function fetchJson(url, options = {}) {
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
+    if (response.status === 401 && url.includes('/api/admin/') && !url.endsWith('/api/admin/login')) {
+      localStorage.removeItem('adminSessionToken');
+      localStorage.removeItem('adminUsername');
+    }
     throw new Error(payload.message || 'Request failed');
   }
   return payload;
+}
+
+async function uploadImageFile(file) {
+  if (!file) return '';
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+    throw new Error('Pilih gambar JPG, PNG, atau WEBP.');
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    throw new Error('Ukuran gambar maksimal 5 MB.');
+  }
+  const formData = new FormData();
+  formData.append('image', file);
+  const result = await fetchJson(`${API_BASE}/admin/gallery`, { method: 'POST', body: formData });
+  return result.item.url;
 }
 
 function getPageMode() {
@@ -227,6 +277,7 @@ function renderPopularGames() {
           <h3>${escapeHtml(game.name)}</h3>
           <span class="card-tag">${escapeHtml(game.category)}</span>
         </div>
+        ${paymentDetails}
         <div class="price-row">
           <span>Mulai dari</span>
           <strong>${formatRupiah(firstVariant.price)}</strong>
@@ -482,6 +533,13 @@ async function getOrderResult(orderId, { quiet = false } = {}) {
         <input id="payment-proof" class="input" type="file" name="proof" accept="image/jpeg,image/png,image/webp,application/pdf" required />
         <button class="button button-primary" type="submit">Kirim Bukti Pembayaran</button>
       </form>
+    ` : '';
+    const paymentDetails = order.paymentImageUrl || order.paymentInstructions ? `
+      <div class="payment-order-details">
+        <h4>Petunjuk pembayaran · ${escapeHtml(order.paymentMethod)}</h4>
+        ${order.paymentImageUrl ? `<img src="${escapeHtml(order.paymentImageUrl)}" alt="Gambar pembayaran ${escapeHtml(order.paymentMethod)}" loading="lazy" />` : ''}
+        ${order.paymentInstructions ? `<p>${escapeHtml(order.paymentInstructions)}</p>` : ''}
+      </div>
     ` : '';
     resultContainer.innerHTML = `
       <div class="panel">
@@ -788,7 +846,7 @@ async function initAdminPage() {
       <article class="gallery-image-card">
         <img src="${escapeHtml(image.url)}" alt="Gambar ${escapeHtml(image.name)}" loading="lazy" />
         <small>${escapeHtml(image.name)}</small>
-        <div><button class="button button-glass button-small" type="button" data-use-logo="${escapeHtml(image.url)}">Jadikan gambar kartu</button><button class="button button-glass button-small" type="button" data-use-banner="${escapeHtml(image.url)}">Jadikan banner produk</button><button class="button button-glass button-small" type="button" data-use-hero="${escapeHtml(image.url)}">Jadikan banner utama</button></div>
+        <div><button class="button button-glass button-small" type="button" data-use-logo="${escapeHtml(image.url)}">Jadikan gambar kartu</button><button class="button button-glass button-small" type="button" data-use-banner="${escapeHtml(image.url)}">Jadikan banner produk</button><button class="button button-glass button-small" type="button" data-use-payment="${escapeHtml(image.url)}">Jadikan QR pembayaran</button><button class="button button-glass button-small" type="button" data-use-hero="${escapeHtml(image.url)}">Jadikan banner utama</button></div>
         <button class="button button-danger button-small" type="button" data-delete-image="${escapeHtml(image.name)}">Hapus gambar</button>
       </article>
     `).join('') : '<div class="empty-state">Galeri masih kosong. Upload gambar untuk mulai menggunakannya.</div>';
@@ -797,6 +855,10 @@ async function initAdminPage() {
     }));
     container.querySelectorAll('[data-use-banner]').forEach((button) => button.addEventListener('click', () => {
       document.getElementById('product-banner').value = button.dataset.useBanner;
+    }));
+    container.querySelectorAll('[data-use-payment]').forEach((button) => button.addEventListener('click', () => {
+      document.getElementById('payment-method-image').value = button.dataset.usePayment;
+      document.getElementById('admin-payments').scrollIntoView({ behavior: 'smooth', block: 'center' });
     }));
     container.querySelectorAll('[data-use-hero]').forEach((button) => button.addEventListener('click', () => {
       document.getElementById('hero-banner-url').value = button.dataset.useHero;
@@ -835,6 +897,44 @@ async function initAdminPage() {
         await loadAdminVouchers();
       } catch (error) {
         setFeatureFeedback('voucher-feedback', getErrorMessage(error, 'Gagal menghapus voucher.'));
+      }
+    }));
+  };
+
+  const loadAdminPaymentMethods = async () => {
+    const table = document.getElementById('admin-payment-method-table');
+    if (!table) return;
+    const result = await fetchJson(`${API_BASE}/admin/payment-methods`);
+    const methods = result.items || [];
+    table.innerHTML = methods.length ? methods.map((method) => `
+      <tr>
+        <td><strong>${escapeHtml(method.name)}</strong><br /><small>${escapeHtml(method.id)}</small></td>
+        <td>${escapeHtml(method.instructions || '-')}</td>
+        <td>${method.image_url ? `<a href="${escapeHtml(method.image_url)}" target="_blank" rel="noreferrer">Lihat gambar ↗</a>` : '—'}</td>
+        <td>${method.active ? 'Aktif' : 'Nonaktif'}</td>
+        <td><button class="button button-glass button-small" type="button" data-edit-payment="${escapeHtml(method.id)}">Edit</button><button class="button button-danger button-small" type="button" data-delete-payment="${escapeHtml(method.id)}">Hapus</button></td>
+      </tr>
+    `).join('') : '<tr><td colspan="5"><div class="empty-state">Belum ada metode pembayaran.</div></td></tr>';
+
+    table.querySelectorAll('[data-edit-payment]').forEach((button) => button.addEventListener('click', () => {
+      const method = methods.find((item) => item.id === button.dataset.editPayment);
+      if (!method) return;
+      document.getElementById('payment-method-original-id').value = method.id;
+      document.getElementById('payment-method-name').value = method.name;
+      document.getElementById('payment-method-instructions').value = method.instructions || '';
+      document.getElementById('payment-method-image').value = method.image_url || '';
+      document.getElementById('payment-method-order').value = method.sort_order || 0;
+      document.getElementById('payment-method-active').checked = Boolean(method.active);
+      document.getElementById('save-payment-method').textContent = 'Simpan perubahan';
+      document.getElementById('admin-payments').scrollIntoView({ behavior: 'smooth' });
+    }));
+    table.querySelectorAll('[data-delete-payment]').forEach((button) => button.addEventListener('click', async () => {
+      if (!confirm(`Hapus metode pembayaran ${button.dataset.deletePayment}?`)) return;
+      try {
+        await fetchJson(`${API_BASE}/admin/payment-methods/${encodeURIComponent(button.dataset.deletePayment)}`, { method: 'DELETE' });
+        await loadAdminPaymentMethods();
+      } catch (error) {
+        setFeatureFeedback('payment-method-feedback', getErrorMessage(error, 'Gagal menghapus metode pembayaran.'));
       }
     }));
   };
@@ -905,8 +1005,8 @@ async function initAdminPage() {
   };
 
   const loadAdminFeatures = async () => {
-    const loaders = [loadAdminProducts, loadAdminCategories, loadAdminGallery, loadAdminVouchers, loadAdminSiteContent];
-    const feedbackIds = ['product-feedback', 'category-feedback', 'gallery-feedback', 'voucher-feedback', 'site-content-feedback'];
+    const loaders = [loadAdminProducts, loadAdminCategories, loadAdminGallery, loadAdminVouchers, loadAdminSiteContent, loadAdminPaymentMethods];
+    const feedbackIds = ['product-feedback', 'category-feedback', 'gallery-feedback', 'voucher-feedback', 'site-content-feedback', 'payment-method-feedback'];
     await Promise.all(loaders.map(async (loader, index) => {
       try {
         await loader();
@@ -949,6 +1049,10 @@ async function initAdminPage() {
     const button = document.getElementById('save-product-button');
     button.disabled = true;
     try {
+      const logoFile = document.getElementById('product-logo-file').files[0];
+      const bannerFile = document.getElementById('product-banner-file').files[0];
+      if (logoFile) payload.logo = await uploadImageFile(logoFile);
+      if (bannerFile) payload.banner = await uploadImageFile(bannerFile);
       const url = originalId ? `${API_BASE}/admin/games/${encodeURIComponent(originalId)}` : `${API_BASE}/admin/games`;
       await fetchJson(url, { method: originalId ? 'PUT' : 'POST', body: JSON.stringify(payload) });
       setFeatureFeedback('product-feedback', 'Produk berhasil disimpan.', true);
@@ -977,6 +1081,71 @@ async function initAdminPage() {
       await loadAdminGallery();
     } catch (error) {
       setFeatureFeedback('gallery-feedback', getErrorMessage(error, 'Gagal mengunggah gambar.'));
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  const resetPaymentMethodForm = () => {
+    document.getElementById('payment-method-form').reset();
+    document.getElementById('payment-method-original-id').value = '';
+    document.getElementById('payment-method-order').value = '0';
+    document.getElementById('payment-method-active').checked = true;
+    document.getElementById('save-payment-method').textContent = 'Simpan metode';
+  };
+  document.getElementById('reset-payment-method')?.addEventListener('click', resetPaymentMethodForm);
+  document.getElementById('payment-method-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const originalId = document.getElementById('payment-method-original-id').value;
+    const button = document.getElementById('save-payment-method');
+    button.disabled = true;
+    try {
+      let imageUrl = document.getElementById('payment-method-image').value.trim();
+      const imageFile = document.getElementById('payment-method-image-file').files[0];
+      if (imageFile) imageUrl = await uploadImageFile(imageFile);
+      const payload = {
+        name: document.getElementById('payment-method-name').value.trim(),
+        instructions: document.getElementById('payment-method-instructions').value.trim(),
+        imageUrl,
+        sortOrder: Number(document.getElementById('payment-method-order').value),
+        active: document.getElementById('payment-method-active').checked
+      };
+      const endpoint = originalId
+        ? `${API_BASE}/admin/payment-methods/${encodeURIComponent(originalId)}`
+        : `${API_BASE}/admin/payment-methods`;
+      const result = await fetchJson(endpoint, { method: originalId ? 'PUT' : 'POST', body: JSON.stringify(payload) });
+      setFeatureFeedback('payment-method-feedback', result.message, true);
+      resetPaymentMethodForm();
+      await Promise.all([loadAdminPaymentMethods(), loadPublicPaymentMethods()]);
+    } catch (error) {
+      setFeatureFeedback('payment-method-feedback', getErrorMessage(error, 'Gagal menyimpan metode pembayaran.'));
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  document.getElementById('admin-password-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const currentPassword = document.getElementById('admin-current-password').value;
+    const newPassword = document.getElementById('admin-new-password').value;
+    const confirmPassword = document.getElementById('admin-confirm-password').value;
+    if (newPassword !== confirmPassword) {
+      setFeatureFeedback('admin-password-feedback', 'Konfirmasi kata sandi baru tidak sama.');
+      return;
+    }
+    const button = event.currentTarget.querySelector('button[type="submit"]');
+    button.disabled = true;
+    try {
+      const result = await fetchJson(`${API_BASE}/admin/change-password`, {
+        method: 'POST',
+        body: JSON.stringify({ currentPassword, newPassword })
+      });
+      localStorage.setItem('adminSessionToken', result.token);
+      localStorage.setItem('adminUsername', result.username);
+      event.currentTarget.reset();
+      setFeatureFeedback('admin-password-feedback', result.message, true);
+    } catch (error) {
+      setFeatureFeedback('admin-password-feedback', getErrorMessage(error, 'Gagal mengubah kata sandi.'));
     } finally {
       button.disabled = false;
     }
@@ -1100,9 +1269,9 @@ async function initAdminPage() {
       await loadAdminFeatures();
     } catch (error) {
       console.error('Admin fetch error:', error);
-      if (error.message.includes('Username atau password')) {
-        sessionStorage.removeItem('adminUsername');
-        sessionStorage.removeItem('adminPassword');
+      if (!localStorage.getItem('adminSessionToken') || error.message.includes('Sesi admin tidak valid')) {
+        localStorage.removeItem('adminSessionToken');
+        localStorage.removeItem('adminUsername');
         loginForm.hidden = false;
         dashboard.hidden = true;
         showLoginError(error.message);
@@ -1116,11 +1285,24 @@ async function initAdminPage() {
 
   const adminUsernameInput = document.getElementById('admin-username');
   const adminPasswordInput = document.getElementById('admin-password');
+  const signIn = async (username, password) => {
+    const result = await fetchJson(`${API_BASE}/admin/login`, {
+      method: 'POST',
+      body: JSON.stringify({ username, password })
+    });
+    localStorage.setItem('adminSessionToken', result.token);
+    localStorage.setItem('adminUsername', result.username);
+    await refreshData();
+  };
   loginForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
-    sessionStorage.setItem('adminUsername', adminUsernameInput.value);
-    sessionStorage.setItem('adminPassword', adminPasswordInput.value);
-    await refreshData();
+    showLoginError('');
+    try {
+      await signIn(adminUsernameInput.value, adminPasswordInput.value);
+      loginForm.reset();
+    } catch (error) {
+      showLoginError(getErrorMessage(error, 'Gagal login admin.'));
+    }
   });
   document.getElementById('refresh-admin-data')?.addEventListener('click', refreshData);
   document.getElementById('admin-order-search')?.addEventListener('input', () => {
@@ -1132,16 +1314,27 @@ async function initAdminPage() {
     }
   });
   document.getElementById('admin-logout')?.addEventListener('click', () => {
-    sessionStorage.removeItem('adminUsername');
-    sessionStorage.removeItem('adminPassword');
+    localStorage.removeItem('adminSessionToken');
+    localStorage.removeItem('adminUsername');
     loginForm.hidden = false;
     dashboard.hidden = true;
   });
-  if (!new URLSearchParams(window.location.search).has('copy-scan')
-    && sessionStorage.getItem('adminUsername') && sessionStorage.getItem('adminPassword')) {
-    adminUsernameInput.value = sessionStorage.getItem('adminUsername');
-    adminPasswordInput.value = sessionStorage.getItem('adminPassword');
-    await refreshData();
+  if (!new URLSearchParams(window.location.search).has('copy-scan')) {
+    if (localStorage.getItem('adminSessionToken')) {
+      await refreshData();
+    } else {
+      const legacyUsername = sessionStorage.getItem('adminUsername');
+      const legacyPassword = sessionStorage.getItem('adminPassword');
+      if (legacyUsername && legacyPassword) {
+        sessionStorage.removeItem('adminUsername');
+        sessionStorage.removeItem('adminPassword');
+        try {
+          await signIn(legacyUsername, legacyPassword);
+        } catch (error) {
+          showLoginError(getErrorMessage(error, 'Sesi login admin perlu diperbarui.'));
+        }
+      }
+    }
   }
 }
 
@@ -1152,6 +1345,7 @@ function setupHomePage() {
 
   const form = document.getElementById('checkout-form');
   if (form) form.addEventListener('submit', handleCheckoutSubmit);
+  loadPublicPaymentMethods();
   document.addEventListener('submit', (event) => {
     if (event.target.id === 'payment-proof-form') handlePaymentProofSubmit(event);
   });
@@ -1207,6 +1401,7 @@ function setupHomePage() {
     window.clearTimeout(voucherValidationTimer);
     voucherValidationTimer = window.setTimeout(updateCheckoutSummary, 250);
   });
+  document.getElementById('payment-method')?.addEventListener('change', renderPaymentMethodPreview);
 
   const headerSearch = document.getElementById('header-search');
   const catalogSearch = document.getElementById('search-input');
