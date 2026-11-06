@@ -1,7 +1,14 @@
 create table if not exists public.categories (
   name text primary key,
+  is_active boolean not null default true,
   created_at timestamptz not null default now()
 );
+
+alter table public.categories
+  add column if not exists is_active boolean not null default true;
+
+alter table public.games
+  add column if not exists is_active boolean not null default true;
 
 insert into public.categories (name)
 select distinct category

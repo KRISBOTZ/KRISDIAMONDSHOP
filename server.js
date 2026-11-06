@@ -336,6 +336,7 @@ function normalizeGame(row) {
     logo: row.logo,
     banner: row.banner,
     status: row.status,
+    isActive: row.is_active !== false,
     featured: Boolean(row.featured),
     bestseller: Boolean(row.bestseller),
     variants: row.variants || [],
@@ -546,6 +547,7 @@ function validateGameInput(body, id = body?.id) {
       logo: String(body.logo || '').trim(),
       banner: String(body.banner || '').trim(),
       status: String(body.status || 'Tersedia').trim(),
+      is_active: body.isActive !== false,
       featured: Boolean(body.featured),
       bestseller: Boolean(body.bestseller),
       variants: normalizedVariants,
@@ -566,12 +568,17 @@ app.get('/api/games', async (req, res) => {
   if (!dbOrError(res)) return;
   try {
     await ensureGames();
-    const { data, error } = await supabase.from('games').select('*').order('name');
+    const [{ data, error }, { data: activeCategories, error: categoryError }] = await Promise.all([
+      supabase.from('games').select('*').order('name'),
+      supabase.from('categories').select('name').eq('is_active', true)
+    ]);
     if (error) throw error;
+    if (categoryError) throw categoryError;
+    const activeCategoryNames = new Set((activeCategories || []).map((item) => item.name));
     const search = String(req.query.search || '').trim().toLowerCase();
     const category = String(req.query.category || 'all').trim();
     const sort = String(req.query.sort || 'featured');
-    let games = data.map(normalizeGame);
+    let games = data.filter((game) => game.is_active !== false && activeCategoryNames.has(game.category)).map(normalizeGame);
 
     if (search) games = games.filter((game) => `${game.name} ${game.description}`.toLowerCase().includes(search));
     if (category !== 'all') games = games.filter((game) => game.category === category);
@@ -587,14 +594,12 @@ app.get('/api/games', async (req, res) => {
 
     const page = Math.max(Number.parseInt(req.query.page, 10) || 1, 1);
     const limit = Math.min(Math.max(Number.parseInt(req.query.limit, 10) || 9, 1), 50);
-    const { data: savedCategories, error: categoryError } = await supabase.from('categories').select('name').order('name');
-    if (categoryError) throw categoryError;
     res.json({
       items: games.slice((page - 1) * limit, page * limit),
       total: games.length,
       page,
       limit,
-      categories: [...new Set([...(savedCategories || []).map((category) => category.name), ...data.map((game) => game.category)])].sort()
+      categories: [...activeCategoryNames].sort()
     });
   } catch (error) {
     console.error('Games fetch error:', error);
@@ -608,7 +613,11 @@ app.get('/api/games/:id', async (req, res) => {
     await ensureGames();
     const { data, error } = await supabase.from('games').select('*').eq('id', req.params.id).maybeSingle();
     if (error) throw error;
-    if (!data) return res.status(404).json({ message: 'Game tidak ditemukan' });
+    if (!data || data.is_active === false) return res.status(404).json({ message: 'Game tidak ditemukan' });
+    const { data: category, error: categoryError } = await supabase.from('categories')
+      .select('is_active').eq('name', data.category).maybeSingle();
+    if (categoryError) throw categoryError;
+    if (category?.is_active === false) return res.status(404).json({ message: 'Game tidak ditemukan' });
     res.json(normalizeGame(data));
   } catch (error) {
     console.error('Game detail error:', error);
@@ -627,7 +636,7 @@ app.get('/api/site-settings', asyncRoute(async (req, res) => {
   if (!dbOrError(res)) return;
   const { data, error } = await supabase.from('site_settings')
     .select('key,value')
-    .in('key', ['hero_banner_url', 'brand_logo_url', 'contact_links', 'maintenance_mode', 'maintenance_message']);
+    .in('key', ['hero_banner_url', 'brand_logo_url', 'contact_links', 'maintenance_mode', 'maintenance_message', 'admin_fee']);
   if (error) throw error;
   const items = Object.fromEntries(data.map((item) => [item.key, item.value]));
   items.contact_links ||= JSON.stringify([
@@ -638,6 +647,7 @@ app.get('/api/site-settings', asyncRoute(async (req, res) => {
   items.brand_logo_url ||= '';
   items.maintenance_mode ||= 'off';
   items.maintenance_message ||= '';
+  items.admin_fee ||= '1500';
   res.json({ items });
 }));
 
@@ -690,13 +700,16 @@ app.get('/api/public-vouchers', asyncRoute(async (req, res) => {
 
 app.get('/api/categories', asyncRoute(async (req, res) => {
   if (!dbOrError(res)) return;
-  const [{ data: saved, error: savedError }, { data: games, error: gamesError }] = await Promise.all([
-    supabase.from('categories').select('name').order('name'),
-    supabase.from('games').select('category')
-  ]);
-  if (savedError) throw savedError;
-  if (gamesError) throw gamesError;
-  res.json({ items: [...new Set([...(saved || []).map((item) => item.name), ...(games || []).map((game) => game.category)])].sort() });
+  const { data, error } = await supabase.from('categories').select('name').eq('is_active', true).order('name');
+  if (error) throw error;
+  res.json({ items: data.map((item) => item.name) });
+}));
+
+app.get('/api/admin/categories', adminOnly, asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  const { data, error } = await supabase.from('categories').select('name,is_active').order('name');
+  if (error) throw error;
+  res.json({ items: data.map((item) => ({ name: item.name, isActive: item.is_active !== false })) });
 }));
 
 app.get('/api/admin/games', adminOnly, asyncRoute(async (req, res) => {
@@ -706,10 +719,35 @@ app.get('/api/admin/games', adminOnly, asyncRoute(async (req, res) => {
   res.json({ items: data.map(normalizeGame) });
 }));
 
+app.patch('/api/admin/games/:id/active', adminOnly, asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  if (typeof req.body?.isActive !== 'boolean') return res.status(400).json({ message: 'Status aktif produk tidak valid.' });
+  if (req.body.isActive) {
+    const { data: game, error: gameError } = await supabase.from('games').select('category').eq('id', req.params.id).maybeSingle();
+    if (gameError) throw gameError;
+    if (!game) return res.status(404).json({ message: 'Produk tidak ditemukan.' });
+    const { data: category, error: categoryError } = await supabase.from('categories')
+      .select('is_active').eq('name', game.category).maybeSingle();
+    if (categoryError) throw categoryError;
+    if (category?.is_active === false) return res.status(400).json({ message: 'Aktifkan kategori produk terlebih dahulu.' });
+  }
+  const { data, error } = await supabase.from('games').update({ is_active: req.body.isActive })
+    .eq('id', req.params.id).select('*').maybeSingle();
+  if (error) throw error;
+  if (!data) return res.status(404).json({ message: 'Produk tidak ditemukan.' });
+  res.json({ item: normalizeGame(data), message: `Produk berhasil ${req.body.isActive ? 'diaktifkan' : 'dinonaktifkan'}.` });
+}));
+
 app.post('/api/admin/games', adminOnly, asyncRoute(async (req, res) => {
   if (!dbOrError(res)) return;
   const { game, error: validationError } = validateGameInput(req.body);
   if (validationError) return res.status(400).json({ message: validationError });
+  if (game.is_active) {
+    const { data: category, error: categoryCheckError } = await supabase.from('categories')
+      .select('is_active').eq('name', game.category).maybeSingle();
+    if (categoryCheckError) throw categoryCheckError;
+    if (category?.is_active === false) return res.status(400).json({ message: 'Aktifkan kategori produk terlebih dahulu.' });
+  }
   const { error: categoryError } = await supabase.from('categories').upsert({ name: game.category }, { onConflict: 'name', ignoreDuplicates: true });
   if (categoryError) throw categoryError;
   const { error } = await supabase.from('games').insert(game);
@@ -722,6 +760,12 @@ app.put('/api/admin/games/:id', adminOnly, asyncRoute(async (req, res) => {
   if (!dbOrError(res)) return;
   const { game, error: validationError } = validateGameInput(req.body, req.params.id);
   if (validationError) return res.status(400).json({ message: validationError });
+  if (game.is_active) {
+    const { data: category, error: categoryCheckError } = await supabase.from('categories')
+      .select('is_active').eq('name', game.category).maybeSingle();
+    if (categoryCheckError) throw categoryCheckError;
+    if (category?.is_active === false) return res.status(400).json({ message: 'Aktifkan kategori produk terlebih dahulu.' });
+  }
   const { error: categoryError } = await supabase.from('categories').upsert({ name: game.category }, { onConflict: 'name', ignoreDuplicates: true });
   if (categoryError) throw categoryError;
   const { data, error } = await supabase.from('games').update(game).eq('id', req.params.id).select('*').maybeSingle();
@@ -744,10 +788,21 @@ app.post('/api/admin/categories', adminOnly, asyncRoute(async (req, res) => {
   if (!dbOrError(res)) return;
   const name = String(req.body?.name || '').trim().slice(0, 60);
   if (!name) return res.status(400).json({ message: 'Nama kategori wajib diisi.' });
-  const { error } = await supabase.from('categories').insert({ name });
+  const { error } = await supabase.from('categories').insert({ name, is_active: true });
   if (error?.code === '23505') return res.status(409).json({ message: 'Kategori sudah ada.' });
   if (error) throw error;
-  res.status(201).json({ item: { name }, message: 'Kategori berhasil ditambahkan.' });
+  res.status(201).json({ item: { name, isActive: true }, message: 'Kategori berhasil ditambahkan.' });
+}));
+
+app.patch('/api/admin/categories/:name/active', adminOnly, asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  if (typeof req.body?.isActive !== 'boolean') return res.status(400).json({ message: 'Status aktif kategori tidak valid.' });
+  const name = String(req.params.name || '').trim();
+  const { data, error } = await supabase.from('categories').update({ is_active: req.body.isActive })
+    .eq('name', name).select('name,is_active').maybeSingle();
+  if (error) throw error;
+  if (!data) return res.status(404).json({ message: 'Kategori tidak ditemukan.' });
+  res.json({ item: { name: data.name, isActive: data.is_active }, message: `Kategori berhasil ${data.is_active ? 'diaktifkan' : 'dinonaktifkan'}.` });
 }));
 
 app.delete('/api/admin/categories/:name', adminOnly, asyncRoute(async (req, res) => {
@@ -925,6 +980,14 @@ app.patch('/api/admin/site-settings', adminOnly, asyncRoute(async (req, res) => 
     updated.maintenanceMode = maintenanceMode;
     updated.maintenanceMessage = maintenanceMessage;
   }
+  if (Object.hasOwn(req.body || {}, 'adminFee')) {
+    const adminFee = Number(req.body.adminFee);
+    if (!Number.isSafeInteger(adminFee) || adminFee < 0 || adminFee > 1000000) {
+      return res.status(400).json({ message: 'Biaya admin harus berupa angka Rupiah dari 0 sampai 1.000.000.' });
+    }
+    rows.push({ key: 'admin_fee', value: String(adminFee) });
+    updated.adminFee = adminFee;
+  }
   if (!rows.length) return res.status(400).json({ message: 'Tidak ada pengaturan yang diperbarui.' });
   const { error } = await supabase.from('site_settings').upsert(rows.map((row) => ({
     ...row,
@@ -1045,16 +1108,23 @@ app.delete('/api/admin/vouchers/:code', adminOnly, asyncRoute(async (req, res) =
 
 app.post('/api/orders', async (req, res) => {
   if (!dbOrError(res)) return;
+  let configuredAdminFee = 1500;
   try {
     const { data: maintenanceSettings, error: settingsError } = await supabase.from('site_settings')
       .select('key,value')
-      .in('key', ['maintenance_mode', 'maintenance_message']);
+      .in('key', ['maintenance_mode', 'maintenance_message', 'admin_fee']);
     if (settingsError) throw settingsError;
     const settings = Object.fromEntries((maintenanceSettings || []).map((item) => [item.key, item.value]));
     if (settings.maintenance_mode && settings.maintenance_mode !== 'off') {
       return res.status(503).json({
         message: settings.maintenance_message || 'Transaksi sedang dihentikan sementara karena maintenance. Silakan coba kembali nanti.'
       });
+    }
+    if (settings.admin_fee !== undefined) {
+      configuredAdminFee = Number(settings.admin_fee);
+      if (!Number.isSafeInteger(configuredAdminFee) || configuredAdminFee < 0 || configuredAdminFee > 1000000) {
+        return res.status(500).json({ message: 'Pengaturan biaya admin tidak valid. Hubungi admin toko.' });
+      }
     }
   } catch (error) {
     console.error('Order maintenance check error:', error);
@@ -1073,6 +1143,11 @@ app.post('/api/orders', async (req, res) => {
     const { data: gameRow, error: gameError } = await supabase.from('games').select('*').eq('id', gameId).maybeSingle();
     if (gameError) throw gameError;
     if (!gameRow) return res.status(404).json({ message: 'Game tidak ditemukan' });
+    if (gameRow.is_active === false) return res.status(400).json({ message: 'Produk sedang tidak tersedia.' });
+    const { data: category, error: categoryError } = await supabase.from('categories')
+      .select('is_active').eq('name', gameRow.category).maybeSingle();
+    if (categoryError) throw categoryError;
+    if (category?.is_active === false) return res.status(400).json({ message: 'Kategori produk sedang tidak tersedia.' });
 
     const game = normalizeGame(gameRow);
     const requestedPaymentMethod = String(paymentMethod || '').trim();
@@ -1083,7 +1158,7 @@ app.post('/api/orders', async (req, res) => {
     const variant = game.variants.find((option) => option.key === variantKey);
     if (!variant) return res.status(400).json({ message: 'Pilihan nominal tidak valid' });
 
-    const adminFee = 1500;
+    const adminFee = configuredAdminFee;
     const voucher = String(voucherCode || '').trim().toUpperCase();
     let voucherRow = null;
     let discount = 0;

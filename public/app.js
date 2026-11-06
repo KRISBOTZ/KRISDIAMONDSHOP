@@ -120,7 +120,7 @@ function applySiteContentToMetadata(page) {
 }
 
 function applySiteSettings(settings) {
-  state.siteSettings = settings || {};
+  state.siteSettings = { admin_fee: '1500', ...(settings || {}) };
   const heroBanner = document.getElementById('hero-banner-image');
   if (heroBanner && state.siteSettings.hero_banner_url) {
     heroBanner.src = state.siteSettings.hero_banner_url;
@@ -150,6 +150,7 @@ function applySiteSettings(settings) {
       control.disabled = transactionMaintenance;
     });
   }
+  updateCheckoutSummary();
 }
 
 function getContactHref(contact) {
@@ -534,7 +535,7 @@ async function updateCheckoutSummary() {
   if (!summaryPrice) return;
 
   const price = Number(state.selectedVariant?.price || 0);
-  const adminFee = 1500;
+  const adminFee = Number(state.siteSettings.admin_fee ?? 1500);
   const voucherCode = document.getElementById('voucher-code')?.value || '';
   const validationSequence = ++voucherValidationSequence;
   let discount = 0;
@@ -925,9 +926,10 @@ async function initAdminPage() {
         <td>${escapeHtml(game.category)}</td>
         <td>${game.variants.length}</td>
         <td><span class="status-pill status-${slugify(game.status)}">${escapeHtml(game.status)}</span></td>
-        <td><button class="button button-glass button-small" type="button" data-edit-product="${escapeHtml(game.id)}">Edit</button><button class="button button-danger button-small" type="button" data-delete-product="${escapeHtml(game.id)}">Hapus</button></td>
+        <td><span class="status-pill ${game.isActive ? 'status-berhasil' : 'status-gagal'}">${game.isActive ? 'Aktif' : 'Nonaktif'}</span></td>
+        <td><button class="button button-glass button-small" type="button" data-toggle-product="${escapeHtml(game.id)}">${game.isActive ? 'Nonaktifkan' : 'Aktifkan'}</button><button class="button button-glass button-small" type="button" data-edit-product="${escapeHtml(game.id)}">Edit</button><button class="button button-danger button-small" type="button" data-delete-product="${escapeHtml(game.id)}">Hapus</button></td>
       </tr>
-    `).join('') : '<tr><td colspan="5"><div class="empty-state">Belum ada produk.</div></td></tr>';
+    `).join('') : '<tr><td colspan="6"><div class="empty-state">Belum ada produk.</div></td></tr>';
 
     table.querySelectorAll('[data-edit-product]').forEach((button) => {
       button.addEventListener('click', () => {
@@ -942,11 +944,29 @@ async function initAdminPage() {
         document.getElementById('product-logo').value = game.logo || '';
         document.getElementById('product-banner').value = game.banner || '';
         document.getElementById('product-status').value = game.status || 'Tersedia';
+        document.getElementById('product-active').checked = game.isActive !== false;
         renderProductVariants(game.variants);
         document.getElementById('product-featured').checked = Boolean(game.featured);
         document.getElementById('product-bestseller').checked = Boolean(game.bestseller);
         document.getElementById('save-product-button').textContent = 'Simpan perubahan';
         document.getElementById('admin-products').scrollIntoView({ behavior: 'smooth' });
+      });
+    });
+    table.querySelectorAll('[data-toggle-product]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const game = state.adminGames.find((item) => item.id === button.dataset.toggleProduct);
+        if (!game) return;
+        button.disabled = true;
+        try {
+          await fetchJson(`${API_BASE}/admin/games/${encodeURIComponent(game.id)}/active`, {
+            method: 'PATCH',
+            body: JSON.stringify({ isActive: !game.isActive })
+          });
+          await loadAdminProducts();
+        } catch (error) {
+          alert(getErrorMessage(error, 'Gagal mengubah status produk.'));
+          button.disabled = false;
+        }
       });
     });
     table.querySelectorAll('[data-delete-product]').forEach((button) => {
@@ -971,15 +991,31 @@ async function initAdminPage() {
   };
 
   const loadAdminCategories = async () => {
-    const result = await fetchJson(`${API_BASE}/categories`);
+    const result = await fetchJson(`${API_BASE}/admin/categories`);
     const categories = result.items || [];
     const list = document.getElementById('admin-category-list');
     const options = document.getElementById('admin-category-options');
-    if (options) options.innerHTML = categories.map((name) => `<option value="${escapeHtml(name)}"></option>`).join('');
+    if (options) options.innerHTML = categories.filter((category) => category.isActive)
+      .map((category) => `<option value="${escapeHtml(category.name)}"></option>`).join('');
     if (list) {
-      list.innerHTML = categories.map((name) => `
-        <div class="admin-category-chip"><span>${escapeHtml(name)}</span><button type="button" class="button button-danger button-small" data-delete-category="${escapeHtml(name)}">Hapus</button></div>
+      list.innerHTML = categories.map((category) => `
+        <div class="admin-category-chip"><span>${escapeHtml(category.name)} · ${category.isActive ? 'Aktif' : 'Nonaktif'}</span><button type="button" class="button button-glass button-small" data-toggle-category="${escapeHtml(category.name)}" data-is-active="${category.isActive}">${category.isActive ? 'Nonaktifkan' : 'Aktifkan'}</button><button type="button" class="button button-danger button-small" data-delete-category="${escapeHtml(category.name)}">Hapus</button></div>
       `).join('') || '<div class="empty-state">Belum ada kategori.</div>';
+      list.querySelectorAll('[data-toggle-category]').forEach((button) => {
+        button.addEventListener('click', async () => {
+          button.disabled = true;
+          try {
+            await fetchJson(`${API_BASE}/admin/categories/${encodeURIComponent(button.dataset.toggleCategory)}/active`, {
+              method: 'PATCH',
+              body: JSON.stringify({ isActive: button.dataset.isActive !== 'true' })
+            });
+            await Promise.all([loadAdminCategories(), loadAdminProducts()]);
+          } catch (error) {
+            setFeatureFeedback('category-feedback', getErrorMessage(error, 'Gagal mengubah status kategori.'));
+            button.disabled = false;
+          }
+        });
+      });
       list.querySelectorAll('[data-delete-category]').forEach((button) => {
         button.addEventListener('click', async () => {
           if (!confirm(`Hapus kategori ${button.dataset.deleteCategory}?`)) return;
@@ -1189,6 +1225,8 @@ async function initAdminPage() {
     const maintenanceMessage = document.getElementById('maintenance-message');
     if (maintenanceMode) maintenanceMode.value = state.siteSettings.maintenance_mode || 'off';
     if (maintenanceMessage) maintenanceMessage.value = state.siteSettings.maintenance_message || '';
+    const adminFeeAmount = document.getElementById('admin-fee-amount');
+    if (adminFeeAmount) adminFeeAmount.value = state.siteSettings.admin_fee || '1500';
     const frame = document.getElementById('site-content-preview');
     await Promise.all(frame ? [frame].map((item) => item.contentDocument?.readyState === 'complete'
       ? Promise.resolve()
@@ -1263,6 +1301,7 @@ async function initAdminPage() {
     document.getElementById('admin-product-form').reset();
     document.getElementById('product-original-id').value = '';
     document.getElementById('product-id').disabled = false;
+    document.getElementById('product-active').checked = true;
     renderProductVariants();
     document.getElementById('save-product-button').textContent = 'Simpan produk';
   };
@@ -1303,6 +1342,7 @@ async function initAdminPage() {
       logo: document.getElementById('product-logo').value.trim(),
       banner: document.getElementById('product-banner').value.trim(),
       status: document.getElementById('product-status').value,
+      isActive: document.getElementById('product-active').checked,
       variants,
       featured: document.getElementById('product-featured').checked,
       bestseller: document.getElementById('product-bestseller').checked
@@ -1533,10 +1573,35 @@ async function initAdminPage() {
           maintenanceMessage: document.getElementById('maintenance-message').value.trim()
         })
       });
+
       setFeatureFeedback('maintenance-feedback', result.message || 'Status maintenance berhasil diperbarui.', true);
       if (result.item) applySiteSettings({ ...state.siteSettings, maintenance_mode: result.item.maintenanceMode, maintenance_message: result.item.maintenanceMessage });
     } catch (error) {
       setFeatureFeedback('maintenance-feedback', getErrorMessage(error, 'Gagal memperbarui status maintenance.'));
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  document.getElementById('admin-fee-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const button = document.getElementById('save-admin-fee');
+    const adminFee = Number(document.getElementById('admin-fee-amount').value);
+    if (!Number.isSafeInteger(adminFee) || adminFee < 0 || adminFee > 1000000) {
+      setFeatureFeedback('admin-fee-feedback', 'Biaya admin harus berupa angka Rupiah dari 0 sampai 1.000.000.');
+      return;
+    }
+    button.disabled = true;
+    try {
+      const result = await fetchJson(`${API_BASE}/admin/site-settings`, {
+        method: 'PATCH',
+        body: JSON.stringify({ adminFee })
+      });
+      state.siteSettings.admin_fee = String(result.item.adminFee);
+      setFeatureFeedback('admin-fee-feedback', result.message, true);
+      updateCheckoutSummary();
+    } catch (error) {
+      setFeatureFeedback('admin-fee-feedback', getErrorMessage(error, 'Gagal menyimpan biaya admin.'));
     } finally {
       button.disabled = false;
     }
