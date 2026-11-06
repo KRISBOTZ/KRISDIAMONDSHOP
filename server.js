@@ -1,0 +1,982 @@
+const express = require('express');
+const multer = require('multer');
+const path = require('path');
+const { randomUUID, timingSafeEqual } = require('crypto');
+const { createClient } = require('@supabase/supabase-js');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, callback) => {
+    if (!['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(file.mimetype)) {
+      callback(new Error('Format bukti pembayaran harus JPG, PNG, WEBP, atau PDF.'));
+      return;
+    }
+    callback(null, true);
+  }
+});
+const imageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, callback) => {
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype)) {
+      callback(new Error('Format gambar harus JPG, PNG, atau WEBP.'));
+      return;
+    }
+    callback(null, true);
+  }
+});
+
+const supabaseUrl = (process.env.SUPABASE_URL || '').trim();
+const supabaseKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || '').trim();
+let supabaseConfigError = '';
+if (!supabaseUrl) {
+  supabaseConfigError = 'SUPABASE_URL belum diatur.';
+} else {
+  try {
+    const parsedUrl = new URL(supabaseUrl);
+    if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+      supabaseConfigError = 'SUPABASE_URL harus menggunakan HTTP atau HTTPS.';
+    }
+  } catch {
+    supabaseConfigError = 'SUPABASE_URL harus berupa URL project Supabase yang valid.';
+  }
+}
+if (!supabaseConfigError && !supabaseKey) {
+  supabaseConfigError = 'SUPABASE_SERVICE_ROLE_KEY belum diatur.';
+}
+const supabase = supabaseConfigError
+  ? null
+  : createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false } });
+
+const STATUS_FLOW = [
+  'Menunggu Pembayaran',
+  'Menunggu Verifikasi',
+  'Pembayaran Berhasil',
+  'Sedang Diproses',
+  'Berhasil',
+  'Gagal',
+  'Dibatalkan',
+  'Refund'
+];
+
+const gamesSeed = [
+  {
+    id: 'mobile-legends',
+    name: 'Mobile Legends',
+    category: 'MOBA',
+    description: 'Top up diamond Mobile Legends dengan proses cepat dan bonus menarik.',
+    logo: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=500&q=80',
+    banner: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=1200&q=80',
+    status: 'Tersedia',
+    featured: true,
+    bestseller: true,
+    variants: [
+      { key: 'diamond-5', label: '5 Diamond', price: 2000 },
+      { key: 'diamond-86', label: '86 Diamond', price: 33000 },
+      { key: 'diamond-172', label: '172 Diamond', price: 65000 },
+      { key: 'diamond-257', label: '257 Diamond', price: 96000 },
+      { key: 'diamond-514', label: '514 Diamond', price: 186000 },
+      { key: 'diamond-1032', label: '1032 Diamond', price: 350000 }
+    ]
+  },
+  {
+    id: 'free-fire',
+    name: 'Free Fire',
+    category: 'Battle Royale',
+    description: 'Beli diamond FF dengan harga ekonomis dan pengiriman instan.',
+    logo: 'https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=500&q=80',
+    banner: 'https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=1200&q=80',
+    status: 'Tersedia',
+    featured: true,
+    bestseller: true,
+    variants: [
+      { key: 'ff-5', label: '5 Diamond', price: 2500 },
+      { key: 'ff-70', label: '70 Diamond', price: 20000 },
+      { key: 'ff-140', label: '140 Diamond', price: 38000 },
+      { key: 'ff-355', label: '355 Diamond', price: 94000 },
+      { key: 'ff-720', label: '720 Diamond', price: 188000 },
+      { key: 'ff-1400', label: '1400 Diamond', price: 340000 }
+    ]
+  },
+  {
+    id: 'pubg-mobile',
+    name: 'PUBG Mobile',
+    category: 'Battle Royale',
+    description: 'Cek saldo UC dan event ulang tahun dengan proses cepat.',
+    logo: 'https://images.unsplash.com/photo-1526379095098-d400fd0bf935?auto=format&fit=crop&w=500&q=80',
+    banner: 'https://images.unsplash.com/photo-1526379095098-d400fd0bf935?auto=format&fit=crop&w=1200&q=80',
+    status: 'Tersedia',
+    featured: false,
+    bestseller: true,
+    variants: [
+      { key: 'uc-60', label: '60 UC', price: 18000 },
+      { key: 'uc-325', label: '325 UC', price: 94000 },
+      { key: 'uc-660', label: '660 UC', price: 186000 },
+      { key: 'uc-1800', label: '1800 UC', price: 470000 },
+      { key: 'uc-3850', label: '3850 UC', price: 980000 }
+    ]
+  },
+  {
+    id: 'genshin-impact',
+    name: 'Genshin Impact',
+    category: 'RPG',
+    description: 'Beli Genesis Crystal dan primogems untuk perjalanan petualanganmu.',
+    logo: 'https://images.unsplash.com/photo-1511884642898-4c92249e20b6?auto=format&fit=crop&w=500&q=80',
+    banner: 'https://images.unsplash.com/photo-1511884642898-4c92249e20b6?auto=format&fit=crop&w=1200&q=80',
+    status: 'Tersedia',
+    featured: true,
+    bestseller: false,
+    variants: [
+      { key: 'gen-60', label: '60 Genesis Crystal', price: 20000 },
+      { key: 'gen-300', label: '300 Genesis Crystal', price: 96000 },
+      { key: 'gen-980', label: '980 Genesis Crystal', price: 310000 },
+      { key: 'gen-1980', label: '1980 Genesis Crystal', price: 610000 },
+      { key: 'gen-3280', label: '3280 Genesis Crystal', price: 980000 }
+    ]
+  },
+  {
+    id: 'honor-of-kings',
+    name: 'Honor of Kings',
+    category: 'MOBA',
+    description: 'Top up skin dan diamond Honor of Kings dengan proses cepat.',
+    logo: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=500&q=80',
+    banner: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=1200&q=80',
+    status: 'Tersedia',
+    featured: false,
+    bestseller: true,
+    variants: [
+      { key: 'hok-14', label: '14 Diamond', price: 4000 },
+      { key: 'hok-90', label: '90 Diamond', price: 26000 },
+      { key: 'hok-222', label: '222 Diamond', price: 64000 },
+      { key: 'hok-555', label: '555 Diamond', price: 160000 },
+      { key: 'hok-916', label: '916 Diamond', price: 270000 }
+    ]
+  },
+  {
+    id: 'valorant',
+    name: 'Valorant',
+    category: 'FPS',
+    description: 'Beli points Valorant dan nikmati item premium dengan aman dan cepat.',
+    logo: 'https://images.unsplash.com/photo-1528819622761-6bcf9a54e6a4?auto=format&fit=crop&w=500&q=80',
+    banner: 'https://images.unsplash.com/photo-1528819622761-6bcf9a54e6a4?auto=format&fit=crop&w=1200&q=80',
+    status: 'Tersedia',
+    featured: false,
+    bestseller: false,
+    variants: [
+      { key: 'val-420', label: '420 VP', price: 72000 },
+      { key: 'val-1375', label: '1375 VP', price: 220000 },
+      { key: 'val-2475', label: '2475 VP', price: 390000 },
+      { key: 'val-4000', label: '4000 VP', price: 620000 },
+      { key: 'val-6500', label: '6500 VP', price: 980000 }
+    ]
+  },
+  {
+    id: 'call-of-duty-mobile',
+    name: 'Call of Duty Mobile',
+    category: 'FPS',
+    description: 'Top up CP CODM dengan proses aman dan pengiriman otomatis.',
+    logo: 'https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=500&q=80',
+    banner: 'https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=1200&q=80',
+    status: 'Tersedia',
+    featured: true,
+    bestseller: false,
+    variants: [
+      { key: 'codm-11', label: '11 CP', price: 3500 },
+      { key: 'codm-70', label: '70 CP', price: 20000 },
+      { key: 'codm-310', label: '310 CP', price: 90000 },
+      { key: 'codm-620', label: '620 CP', price: 180000 },
+      { key: 'codm-1950', label: '1950 CP', price: 520000 }
+    ]
+  }
+];
+
+function dbOrError(res) {
+  if (!supabase) {
+    res.status(503).json({ message: `Backend belum dikonfigurasi: ${supabaseConfigError}` });
+    return false;
+  }
+  return true;
+}
+
+function adminOnly(req, res, next) {
+  const expectedUsername = process.env.ADMIN_USERNAME;
+  const expectedPassword = process.env.ADMIN_PASSWORD;
+  const providedUsername = req.get('x-admin-username') || '';
+  const providedPassword = req.get('x-admin-password') || '';
+  if (!expectedUsername || !expectedPassword) {
+    res.status(503).json({ message: 'Akun admin belum dikonfigurasi di environment Vercel.' });
+    return;
+  }
+
+  const usernameMatches = constantTimeEqual(expectedUsername, providedUsername);
+  const passwordMatches = constantTimeEqual(expectedPassword, providedPassword);
+  if (!usernameMatches || !passwordMatches) {
+    res.status(401).json({ message: 'Username atau password admin tidak valid.' });
+    return;
+  }
+  next();
+}
+
+function constantTimeEqual(expected, provided) {
+  const expectedBuffer = Buffer.from(expected);
+  const providedBuffer = Buffer.from(provided);
+  return expectedBuffer.length === providedBuffer.length && timingSafeEqual(expectedBuffer, providedBuffer);
+}
+
+function normalizeGame(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    category: row.category,
+    description: row.description,
+    logo: row.logo,
+    banner: row.banner,
+    status: row.status,
+    featured: Boolean(row.featured),
+    bestseller: Boolean(row.bestseller),
+    variants: row.variants || [],
+    metadata: row.metadata || {}
+  };
+}
+
+function getOrderPayload(row, history = []) {
+  return {
+    id: row.id,
+    gameId: row.game_id,
+    gameName: row.game_name,
+    category: row.category,
+    variantKey: row.variant_key,
+    variantName: row.variant_name,
+    price: row.price,
+    adminFee: row.admin_fee,
+    discountAmount: row.discount_amount,
+    totalAmount: row.total_amount,
+    customerName: row.customer_name,
+    customerEmail: row.customer_email,
+    customerPhone: row.customer_phone,
+    userIdInput: row.user_id_input,
+    serverId: row.server_id,
+    paymentMethod: row.payment_method,
+    voucherCode: row.voucher_code,
+    paymentProof: row.payment_proof,
+    note: row.note,
+    status: row.status,
+    userId: row.user_id,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    orderHistory: history.map((entry) => ({
+      id: entry.id,
+      status: entry.status,
+      note: entry.note,
+      createdAt: entry.created_at
+    }))
+  };
+}
+
+async function ensureGames() {
+  const { data, error } = await supabase.from('games').select('id').limit(1);
+  if (error) throw error;
+  if (!data.length) {
+    const seed = gamesSeed.map((game) => ({
+      ...game,
+      metadata: { popular: game.featured, gameSlug: game.id, shortName: game.name }
+    }));
+    const { error: seedError } = await supabase.from('games').upsert(seed);
+    if (seedError) throw seedError;
+  }
+}
+
+async function getOrderById(orderId) {
+  const { data: order, error } = await supabase.from('orders').select('*').eq('id', orderId).maybeSingle();
+  if (error) throw error;
+  if (!order) return null;
+
+  const { data: history, error: historyError } = await supabase
+    .from('order_status_history')
+    .select('*')
+    .eq('order_id', orderId)
+    .order('created_at', { ascending: true });
+  if (historyError) throw historyError;
+  return getOrderPayload(order, history || []);
+}
+
+async function createNotification(userId, orderId, title, message) {
+  const { error } = await supabase.from('notifications').insert({
+    id: `ntf-${randomUUID()}`,
+    user_id: userId,
+    order_id: orderId,
+    title,
+    message
+  });
+  if (error) throw error;
+}
+
+function asyncRoute(handler) {
+  return (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
+}
+
+async function redeemVoucher(voucher) {
+  let uses = Number(voucher.uses || 0);
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const { data, error } = await supabase.from('vouchers')
+      .update({ uses: uses + 1 })
+      .eq('code', voucher.code)
+      .eq('uses', uses)
+      .select('uses')
+      .maybeSingle();
+    if (error) throw error;
+    if (data) return true;
+
+    const { data: current, error: currentError } = await supabase.from('vouchers')
+      .select('uses,max_uses,active,expires_at,starts_at')
+      .eq('code', voucher.code)
+      .maybeSingle();
+    if (currentError) throw currentError;
+    if (!current || !current.active
+      || (current.max_uses !== null && current.uses >= current.max_uses)
+      || (current.expires_at && Date.parse(current.expires_at) <= Date.now())
+      || (current.starts_at && Date.parse(current.starts_at) > Date.now())) return false;
+    uses = Number(current.uses || 0);
+  }
+  return false;
+}
+
+function validateGameInput(body, id = body?.id) {
+  const gameId = String(id || '').trim().toLowerCase();
+  const name = String(body?.name || '').trim();
+  const category = String(body?.category || '').trim();
+  const variants = body?.variants;
+  const imageUrls = [String(body?.logo || '').trim(), String(body?.banner || '').trim()];
+  const validImageUrls = imageUrls.every((value) => {
+    if (!value) return true;
+    try {
+      return ['http:', 'https:'].includes(new URL(value).protocol);
+    } catch {
+      return false;
+    }
+  });
+  if (!validImageUrls) return { error: 'URL gambar harus menggunakan HTTP atau HTTPS.' };
+  if (String(body?.description || '').length > 1000) return { error: 'Deskripsi maksimal 1.000 karakter.' };
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(gameId) || !name || name.length > 100 || !category
+    || category.length > 60 || !Array.isArray(variants) || !variants.length || variants.length > 100) {
+    return { error: 'ID, nama, kategori, dan minimal satu nominal wajib diisi.' };
+  }
+  const normalizedVariants = [];
+  const keys = new Set();
+  for (const variant of variants) {
+    const key = String(variant?.key || '').trim();
+    const label = String(variant?.label || '').trim();
+    const price = Number(variant?.price);
+    if (!key || key.length > 80 || !label || label.length > 120 || !Number.isSafeInteger(price) || price < 0 || keys.has(key)) {
+      return { error: 'Setiap nominal harus memiliki key unik, label, dan harga berupa angka non-negatif.' };
+    }
+    keys.add(key);
+    normalizedVariants.push({ key, label, price });
+  }
+  return {
+    game: {
+      id: gameId,
+      name,
+      category,
+      description: String(body.description || '').trim(),
+      logo: String(body.logo || '').trim(),
+      banner: String(body.banner || '').trim(),
+      status: String(body.status || 'Tersedia').trim(),
+      featured: Boolean(body.featured),
+      bestseller: Boolean(body.bestseller),
+      variants: normalizedVariants,
+      metadata: body.metadata && typeof body.metadata === 'object' && !Array.isArray(body.metadata) ? body.metadata : {}
+    }
+  };
+}
+
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true }));
+
+app.get('/api/health', (req, res) => {
+  res.status(supabase ? 200 : 503).json({
+    ok: Boolean(supabase),
+    message: supabase ? 'KRIS DIAMOND SHOP API is running' : `Backend belum dikonfigurasi: ${supabaseConfigError}`,
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.get('/api/games', async (req, res) => {
+  if (!dbOrError(res)) return;
+  try {
+    await ensureGames();
+    const { data, error } = await supabase.from('games').select('*').order('name');
+    if (error) throw error;
+    const search = String(req.query.search || '').trim().toLowerCase();
+    const category = String(req.query.category || 'all').trim();
+    const sort = String(req.query.sort || 'featured');
+    let games = data.map(normalizeGame);
+
+    if (search) games = games.filter((game) => `${game.name} ${game.description}`.toLowerCase().includes(search));
+    if (category !== 'all') games = games.filter((game) => game.category === category);
+    if (sort === 'price-low') {
+      games.sort((a, b) => Math.min(...a.variants.map((item) => Number(item.price))) - Math.min(...b.variants.map((item) => Number(item.price))));
+    } else if (sort === 'price-high') {
+      games.sort((a, b) => Math.max(...b.variants.map((item) => Number(item.price))) - Math.max(...a.variants.map((item) => Number(item.price))));
+    } else if (sort === 'name') {
+      games.sort((a, b) => a.name.localeCompare(b.name));
+    } else {
+      games.sort((a, b) => Number(b.featured) - Number(a.featured) || Number(b.bestseller) - Number(a.bestseller));
+    }
+
+    const page = Math.max(Number.parseInt(req.query.page, 10) || 1, 1);
+    const limit = Math.min(Math.max(Number.parseInt(req.query.limit, 10) || 9, 1), 50);
+    const { data: savedCategories, error: categoryError } = await supabase.from('categories').select('name').order('name');
+    if (categoryError) throw categoryError;
+    res.json({
+      items: games.slice((page - 1) * limit, page * limit),
+      total: games.length,
+      page,
+      limit,
+      categories: [...new Set([...(savedCategories || []).map((category) => category.name), ...data.map((game) => game.category)])].sort()
+    });
+  } catch (error) {
+    console.error('Games fetch error:', error);
+    res.status(500).json({ message: 'Gagal mengambil data game.' });
+  }
+});
+
+app.get('/api/games/:id', async (req, res) => {
+  if (!dbOrError(res)) return;
+  try {
+    await ensureGames();
+    const { data, error } = await supabase.from('games').select('*').eq('id', req.params.id).maybeSingle();
+    if (error) throw error;
+    if (!data) return res.status(404).json({ message: 'Game tidak ditemukan' });
+    res.json(normalizeGame(data));
+  } catch (error) {
+    console.error('Game detail error:', error);
+    res.status(500).json({ message: 'Gagal mengambil detail game.' });
+  }
+});
+
+app.get('/api/site-content', asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  const { data, error } = await supabase.from('site_content').select('source_text,replacement_text');
+  if (error) throw error;
+  res.json({ items: Object.fromEntries(data.map((item) => [item.source_text, item.replacement_text])) });
+}));
+
+app.get('/api/site-settings', asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  const { data, error } = await supabase.from('site_settings').select('key,value');
+  if (error) throw error;
+  res.json({ items: Object.fromEntries(data.map((item) => [item.key, item.value])) });
+}));
+
+app.post('/api/vouchers/validate', asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  const code = String(req.body?.code || '').trim().toUpperCase();
+  const price = Number(req.body?.price);
+  if (!code || !Number.isSafeInteger(price) || price < 0) return res.status(400).json({ message: 'Kode voucher atau harga tidak valid.' });
+  const { data, error } = await supabase.from('vouchers').select('*').eq('code', code).maybeSingle();
+  if (error) throw error;
+  if (!data || !data.active) return res.status(400).json({ message: 'Kode voucher tidak valid atau sedang tidak aktif.' });
+  const currentTime = Date.now();
+  if ((data.starts_at && Date.parse(data.starts_at) > currentTime)
+    || (data.expires_at && Date.parse(data.expires_at) <= currentTime)
+    || (data.max_uses !== null && data.uses >= data.max_uses)) {
+    return res.status(400).json({ message: 'Kode voucher belum berlaku, sudah kedaluwarsa, atau kuotanya habis.' });
+  }
+  const discount = data.discount_type === 'percent'
+    ? Math.round(price * data.discount_value / 100)
+    : Math.min(price, data.discount_value);
+  res.json({ code, discount, message: 'Kode voucher berhasil digunakan.' });
+}));
+
+app.get('/api/categories', asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  const [{ data: saved, error: savedError }, { data: games, error: gamesError }] = await Promise.all([
+    supabase.from('categories').select('name').order('name'),
+    supabase.from('games').select('category')
+  ]);
+  if (savedError) throw savedError;
+  if (gamesError) throw gamesError;
+  res.json({ items: [...new Set([...(saved || []).map((item) => item.name), ...(games || []).map((game) => game.category)])].sort() });
+}));
+
+app.get('/api/admin/games', adminOnly, asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  const { data, error } = await supabase.from('games').select('*').order('name');
+  if (error) throw error;
+  res.json({ items: data.map(normalizeGame) });
+}));
+
+app.post('/api/admin/games', adminOnly, asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  const { game, error: validationError } = validateGameInput(req.body);
+  if (validationError) return res.status(400).json({ message: validationError });
+  const { error: categoryError } = await supabase.from('categories').upsert({ name: game.category }, { onConflict: 'name', ignoreDuplicates: true });
+  if (categoryError) throw categoryError;
+  const { error } = await supabase.from('games').insert(game);
+  if (error?.code === '23505') return res.status(409).json({ message: 'ID produk sudah digunakan.' });
+  if (error) throw error;
+  res.status(201).json({ item: normalizeGame(game), message: 'Produk berhasil ditambahkan.' });
+}));
+
+app.put('/api/admin/games/:id', adminOnly, asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  const { game, error: validationError } = validateGameInput(req.body, req.params.id);
+  if (validationError) return res.status(400).json({ message: validationError });
+  const { error: categoryError } = await supabase.from('categories').upsert({ name: game.category }, { onConflict: 'name', ignoreDuplicates: true });
+  if (categoryError) throw categoryError;
+  const { data, error } = await supabase.from('games').update(game).eq('id', req.params.id).select('*').maybeSingle();
+  if (error) throw error;
+  if (!data) return res.status(404).json({ message: 'Produk tidak ditemukan.' });
+  res.json({ item: normalizeGame(data), message: 'Produk berhasil diperbarui.' });
+}));
+
+app.delete('/api/admin/games/:id', adminOnly, asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  const { count, error: orderError } = await supabase.from('orders').select('id', { count: 'exact', head: true }).eq('game_id', req.params.id);
+  if (orderError) throw orderError;
+  if (count) return res.status(409).json({ message: 'Produk tidak dapat dihapus karena sudah memiliki riwayat pesanan. Nonaktifkan produknya sebagai gantinya.' });
+  const { error } = await supabase.from('games').delete().eq('id', req.params.id);
+  if (error) throw error;
+  res.json({ message: 'Produk berhasil dihapus.' });
+}));
+
+app.post('/api/admin/categories', adminOnly, asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  const name = String(req.body?.name || '').trim().slice(0, 60);
+  if (!name) return res.status(400).json({ message: 'Nama kategori wajib diisi.' });
+  const { error } = await supabase.from('categories').insert({ name });
+  if (error?.code === '23505') return res.status(409).json({ message: 'Kategori sudah ada.' });
+  if (error) throw error;
+  res.status(201).json({ item: { name }, message: 'Kategori berhasil ditambahkan.' });
+}));
+
+app.delete('/api/admin/categories/:name', adminOnly, asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  const name = String(req.params.name || '').trim();
+  const { count, error: gameError } = await supabase.from('games').select('id', { count: 'exact', head: true }).eq('category', name);
+  if (gameError) throw gameError;
+  if (count) return res.status(409).json({ message: 'Kategori masih digunakan produk. Pindahkan produk ke kategori lain terlebih dahulu.' });
+  const { error } = await supabase.from('categories').delete().eq('name', name);
+  if (error) throw error;
+  res.json({ message: 'Kategori berhasil dihapus.' });
+}));
+
+app.get('/api/admin/gallery', adminOnly, asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  const { data, error } = await supabase.storage.from('product-images').list('', {
+    limit: 100,
+    sortBy: { column: 'created_at', order: 'desc' }
+  });
+  if (error) throw error;
+  const items = (data || []).filter((item) => item.id).map((item) => {
+    const path = item.name;
+    const { data: publicUrl } = supabase.storage.from('product-images').getPublicUrl(path);
+    return { name: path, url: publicUrl.publicUrl };
+  });
+  res.json({ items });
+}));
+
+app.post('/api/admin/gallery', adminOnly, imageUpload.single('image'), asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  if (!req.file) return res.status(400).json({ message: 'Pilih gambar JPG, PNG, atau WEBP.' });
+  const extension = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }[req.file.mimetype];
+  const imagePath = `${randomUUID()}.${extension}`;
+  const { error } = await supabase.storage.from('product-images').upload(imagePath, req.file.buffer, {
+    contentType: req.file.mimetype,
+    upsert: false
+  });
+  if (error) throw error;
+  const { data } = supabase.storage.from('product-images').getPublicUrl(imagePath);
+  res.status(201).json({ item: { name: imagePath, url: data.publicUrl }, message: 'Gambar berhasil diunggah.' });
+}));
+
+app.delete('/api/admin/gallery/:name', adminOnly, asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  const imageName = String(req.params.name || '');
+  if (!/^[\w.-]+\.(?:jpg|png|webp)$/i.test(imageName)) return res.status(400).json({ message: 'Nama gambar tidak valid.' });
+  const { data: games, error: gameError } = await supabase.from('games').select('id').or(`logo.ilike.%${imageName}%,banner.ilike.%${imageName}%`);
+  if (gameError) throw gameError;
+  if (games?.length) return res.status(409).json({ message: 'Gambar masih dipakai produk. Ganti gambar produk terlebih dahulu.' });
+  const { error } = await supabase.storage.from('product-images').remove([imageName]);
+  if (error) throw error;
+  res.json({ message: 'Gambar berhasil dihapus.' });
+}));
+
+app.patch('/api/admin/content', adminOnly, asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  const items = req.body?.items;
+  if (!Array.isArray(items) || items.length > 1000) return res.status(400).json({ message: 'Daftar teks tidak valid.' });
+  const validItems = items
+    .filter((item) => typeof item?.sourceText === 'string' && typeof item?.replacementText === 'string')
+    .map((item) => ({
+      source_text: item.sourceText.trim().slice(0, 500),
+      replacement_text: item.replacementText.slice(0, 1000),
+      updated_at: new Date().toISOString()
+    }))
+    .filter((item) => item.source_text);
+  const normalized = validItems.filter((item) => item.replacement_text.trim() && item.source_text !== item.replacement_text);
+  const resets = validItems.filter((item) => !item.replacement_text.trim() || item.source_text === item.replacement_text);
+  if (!validItems.length) return res.json({ message: 'Tidak ada perubahan teks.' });
+  if (resets.length) {
+    const { error } = await supabase.from('site_content').delete().in('source_text', resets.map((item) => item.source_text));
+    if (error) throw error;
+  }
+  if (normalized.length) {
+    const { error } = await supabase.from('site_content').upsert(normalized, { onConflict: 'source_text' });
+    if (error) throw error;
+  }
+  res.json({ message: normalized.length ? `${normalized.length} teks berhasil diperbarui.` : `${resets.length} teks berhasil direset.` });
+}));
+
+app.patch('/api/admin/site-settings', adminOnly, asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  const heroBannerUrl = String(req.body?.heroBannerUrl || '').trim();
+  if (!heroBannerUrl) return res.status(400).json({ message: 'URL gambar banner wajib diisi.' });
+  try {
+    if (!['http:', 'https:'].includes(new URL(heroBannerUrl).protocol)) throw new Error('invalid protocol');
+  } catch {
+    return res.status(400).json({ message: 'URL banner harus menggunakan HTTP atau HTTPS.' });
+  }
+  const { error } = await supabase.from('site_settings').upsert({
+    key: 'hero_banner_url',
+    value: heroBannerUrl,
+    updated_at: new Date().toISOString()
+  }, { onConflict: 'key' });
+  if (error) throw error;
+  res.json({ message: 'Banner utama berhasil diperbarui.', item: { heroBannerUrl } });
+}));
+
+app.get('/api/admin/vouchers', adminOnly, asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  const { data, error } = await supabase.from('vouchers').select('*').order('created_at', { ascending: false });
+  if (error) throw error;
+  res.json({ items: data });
+}));
+
+app.post('/api/admin/vouchers', adminOnly, asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  const code = String(req.body?.code || '').trim().toUpperCase();
+  const discountType = req.body?.discountType;
+  const discountValue = Number(req.body?.discountValue);
+  const maxUses = req.body?.maxUses === '' || req.body?.maxUses == null ? null : Number(req.body.maxUses);
+  const expiresAt = req.body?.expiresAt || null;
+  if (!/^[A-Z0-9_-]{3,30}$/.test(code) || !['percent', 'fixed'].includes(discountType)
+    || !Number.isSafeInteger(discountValue) || discountValue < 1
+    || (discountType === 'percent' && discountValue > 100)
+    || (maxUses !== null && (!Number.isSafeInteger(maxUses) || maxUses < 1))
+    || (expiresAt && Number.isNaN(Date.parse(expiresAt)))) {
+    return res.status(400).json({ message: 'Data voucher tidak valid.' });
+  }
+  const { data, error } = await supabase.from('vouchers').insert({
+    code,
+    discount_type: discountType,
+    discount_value: discountValue,
+    active: req.body?.active !== false,
+    starts_at: req.body?.startsAt || null,
+    expires_at: expiresAt,
+    max_uses: maxUses
+  }).select('*').single();
+  if (error?.code === '23505') return res.status(409).json({ message: 'Kode voucher sudah digunakan.' });
+  if (error) throw error;
+  res.status(201).json({ item: data, message: 'Voucher berhasil dibuat.' });
+}));
+
+app.delete('/api/admin/vouchers/:code', adminOnly, asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  const code = String(req.params.code || '').toUpperCase();
+  const { error } = await supabase.from('vouchers').delete().eq('code', code);
+  if (error) throw error;
+  res.json({ message: 'Voucher berhasil dihapus.' });
+}));
+
+app.post('/api/orders', async (req, res) => {
+  if (!dbOrError(res)) return;
+  const {
+    gameId, variantKey, customerName, customerPhone, customerEmail,
+    userIdInput, serverId, paymentMethod, voucherCode, note
+  } = req.body || {};
+  if (!gameId || !variantKey || !customerName || !customerPhone || !customerEmail || !userIdInput) {
+    return res.status(400).json({ message: 'Mohon lengkapi semua data pelanggan dan akun game yang dibutuhkan.' });
+  }
+
+  try {
+    await ensureGames();
+    const { data: gameRow, error: gameError } = await supabase.from('games').select('*').eq('id', gameId).maybeSingle();
+    if (gameError) throw gameError;
+    if (!gameRow) return res.status(404).json({ message: 'Game tidak ditemukan' });
+
+    const game = normalizeGame(gameRow);
+    const variant = game.variants.find((option) => option.key === variantKey);
+    if (!variant) return res.status(400).json({ message: 'Pilihan nominal tidak valid' });
+
+    const adminFee = 1500;
+    const voucher = String(voucherCode || '').trim().toUpperCase();
+    let voucherRow = null;
+    let discount = 0;
+    if (voucher) {
+      const { data, error: voucherError } = await supabase.from('vouchers').select('*').eq('code', voucher).maybeSingle();
+      if (voucherError) throw voucherError;
+      if (!data || !data.active) return res.status(400).json({ message: 'Kode voucher tidak valid atau sedang tidak aktif.' });
+      const currentTime = Date.now();
+      if ((data.starts_at && Date.parse(data.starts_at) > currentTime)
+        || (data.expires_at && Date.parse(data.expires_at) <= currentTime)
+        || (data.max_uses !== null && data.uses >= data.max_uses)) {
+        return res.status(400).json({ message: 'Kode voucher belum berlaku, sudah kedaluwarsa, atau kuotanya habis.' });
+      }
+      voucherRow = data;
+      discount = data.discount_type === 'percent'
+        ? Math.round(Number(variant.price) * data.discount_value / 100)
+        : Math.min(Number(variant.price), data.discount_value);
+    }
+    const now = new Date().toISOString();
+    const orderId = `KDS-${randomUUID().replace(/-/g, '').slice(0, 10).toUpperCase()}`;
+    const userId = randomUUID();
+    const orderRow = {
+      id: orderId,
+      game_id: game.id,
+      game_name: game.name,
+      category: game.category,
+      variant_key: variant.key,
+      variant_name: variant.label,
+      price: Number(variant.price),
+      admin_fee: adminFee,
+      discount_amount: discount,
+      total_amount: Math.max(Number(variant.price) + adminFee - discount, 0),
+      customer_name: String(customerName).trim(),
+      customer_email: String(customerEmail).trim(),
+      customer_phone: String(customerPhone).trim(),
+      user_id_input: String(userIdInput).trim(),
+      server_id: String(serverId || '').trim(),
+      payment_method: paymentMethod || 'QRIS',
+      voucher_code: voucher,
+      payment_proof: null,
+      note: note || '',
+      status: STATUS_FLOW[0],
+      user_id: userId,
+      created_at: now,
+      updated_at: now
+    };
+
+    const { error: insertError } = await supabase.from('orders').insert(orderRow);
+    if (insertError) throw insertError;
+
+    const { error: historyError } = await supabase.from('order_status_history').insert({
+      order_id: orderId,
+      status: STATUS_FLOW[0],
+      note: 'Pesanan dibuat dan menunggu pembayaran.',
+      created_at: now
+    });
+    if (historyError) throw historyError;
+
+    if (voucherRow) {
+      const redeemed = await redeemVoucher(voucherRow);
+      if (!redeemed) {
+        const { error: rollbackError } = await supabase.from('orders').delete().eq('id', orderId);
+        if (rollbackError) throw rollbackError;
+        return res.status(409).json({ message: 'Kuota voucher baru saja habis. Silakan coba kode lain.' });
+      }
+    }
+
+    await createNotification(userId, orderId, STATUS_FLOW[0], `Pesanan ${orderId} telah dibuat. Silakan lakukan pembayaran untuk melanjutkan proses.`);
+    res.status(201).json({
+      message: 'Pesanan berhasil dibuat.',
+      order: getOrderPayload(orderRow, [{ status: STATUS_FLOW[0], note: 'Pesanan dibuat dan menunggu pembayaran.', created_at: now }])
+    });
+  } catch (error) {
+    console.error('Order creation error:', error);
+    res.status(500).json({ message: 'Gagal membuat pesanan.' });
+  }
+});
+
+app.get(['/api/orders', '/api/orders/:id'], async (req, res) => {
+  if (!dbOrError(res)) return;
+  const orderId = req.params.id || req.query.orderId;
+  if (!orderId) return res.status(400).json({ message: 'ID pesanan wajib diisi.' });
+  try {
+    const order = await getOrderById(orderId);
+    if (!order) return res.status(404).json({ message: 'Pesanan tidak ditemukan' });
+    res.json(order);
+  } catch (error) {
+    console.error('Order lookup error:', error);
+    res.status(500).json({ message: 'Gagal memeriksa pesanan.' });
+  }
+});
+
+app.post('/api/orders/:id/upload-proof', upload.single('proof'), asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  if (!req.file) return res.status(400).json({ message: 'Bukti pembayaran wajib diupload.' });
+  const { data: order, error: orderError } = await supabase.from('orders').select('id,status').eq('id', req.params.id).maybeSingle();
+  if (orderError) return res.status(500).json({ message: 'Gagal memeriksa pesanan.' });
+  if (!order) return res.status(404).json({ message: 'Pesanan tidak ditemukan' });
+
+  const extension = {
+    'image/jpeg': 'jpg',
+    'image/png': 'png',
+    'image/webp': 'webp',
+    'application/pdf': 'pdf'
+  }[req.file.mimetype];
+  const objectPath = `${req.params.id}/${randomUUID()}.${extension}`;
+  const { error: uploadError } = await supabase.storage
+    .from('payment-proofs')
+    .upload(objectPath, req.file.buffer, { contentType: req.file.mimetype, upsert: false });
+  if (uploadError) {
+    console.error('Proof upload error:', uploadError);
+    return res.status(500).json({ message: 'Gagal mengupload bukti pembayaran.' });
+  }
+
+  const now = new Date().toISOString();
+  const { error: updateError } = await supabase.from('orders').update({
+    payment_proof: objectPath,
+    status: 'Menunggu Verifikasi',
+    updated_at: now
+  }).eq('id', req.params.id);
+  if (updateError) {
+    await supabase.storage.from('payment-proofs').remove([objectPath]);
+    console.error('Proof order update error:', updateError);
+    return res.status(500).json({ message: 'Gagal memperbarui status pembayaran.' });
+  }
+
+  const noteText = 'Bukti pembayaran berhasil diupload dan menunggu verifikasi admin.';
+  const { error: historyError } = await supabase.from('order_status_history').insert({
+    order_id: req.params.id,
+    status: 'Menunggu Verifikasi',
+    note: noteText,
+    created_at: now
+  });
+  if (historyError) {
+    console.error('Proof history insert error:', historyError);
+    return res.status(500).json({ message: 'Bukti tersimpan, tetapi riwayat status gagal diperbarui.' });
+  }
+  res.json({ message: 'Bukti pembayaran berhasil diupload. Silakan menunggu verifikasi admin.', order: await getOrderById(req.params.id) });
+}));
+
+app.get('/api/notifications', asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  const userId = req.query.userId;
+  if (!userId) return res.status(400).json({ message: 'ID pengguna wajib diisi.' });
+  const { data, error } = await supabase.from('notifications').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(20);
+  if (error) {
+    console.error('Notifications fetch error:', error);
+    return res.status(500).json({ message: 'Gagal mengambil notifikasi.' });
+  }
+  res.json({ items: data });
+}));
+
+app.patch('/api/notifications/:id/read', asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  const { error } = await supabase.from('notifications').update({ is_read: true }).eq('id', req.params.id);
+  if (error) return res.status(500).json({ message: 'Gagal memperbarui notifikasi.' });
+  res.json({ ok: true, message: 'Notifikasi ditandai telah dibaca' });
+}));
+
+app.get('/api/admin/orders', adminOnly, asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  const { data, error } = await supabase.from('orders').select('*').order('created_at', { ascending: false });
+  if (error) {
+    console.error('Admin orders fetch error:', error);
+    return res.status(500).json({ message: 'Gagal mengambil data admin.' });
+  }
+  res.json({ items: data.map((order) => getOrderPayload(order)) });
+}));
+
+app.patch('/api/admin/orders/:id/status', adminOnly, async (req, res) => {
+  if (!dbOrError(res)) return;
+  const { status, note } = req.body || {};
+  if (!STATUS_FLOW.includes(status)) return res.status(400).json({ message: 'Status pesanan tidak valid.' });
+
+  try {
+    const { data: order, error: orderError } = await supabase.from('orders').select('*').eq('id', req.params.id).maybeSingle();
+    if (orderError) throw orderError;
+    if (!order) return res.status(404).json({ message: 'Pesanan tidak ditemukan' });
+
+    const now = new Date().toISOString();
+    const statusNote = note || 'Status pesanan diperbarui.';
+    const { error: updateError } = await supabase.from('orders').update({
+      status,
+      note: note || order.note || '',
+      updated_at: now
+    }).eq('id', req.params.id);
+    if (updateError) throw updateError;
+
+    const { error: historyError } = await supabase.from('order_status_history').insert({
+      order_id: req.params.id,
+      status,
+      note: statusNote,
+      created_at: now
+    });
+    if (historyError) throw historyError;
+    await createNotification(order.user_id, order.id, `Status Pesanan ${status}`, `Status pesanan Anda sedang diperbarui menjadi ${status}.`);
+    res.json({ message: 'Status pesanan berhasil diperbarui.', order: await getOrderById(req.params.id) });
+  } catch (error) {
+    console.error('Order status update error:', error);
+    res.status(500).json({ message: 'Gagal mengubah status pesanan.' });
+  }
+});
+
+app.delete('/api/admin/orders/:id', adminOnly, asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  const { data: order, error: orderError } = await supabase.from('orders')
+    .select('id,status,payment_proof')
+    .eq('id', req.params.id)
+    .maybeSingle();
+  if (orderError) throw orderError;
+  if (!order) return res.status(404).json({ message: 'Pesanan tidak ditemukan.' });
+  if (!['Gagal', 'Refund', 'Dibatalkan'].includes(order.status)) {
+    return res.status(409).json({ message: 'Hanya pesanan berstatus Gagal, Refund, atau Dibatalkan yang dapat dihapus.' });
+  }
+  if (order.payment_proof) {
+    const { error: proofError } = await supabase.storage.from('payment-proofs').remove([order.payment_proof]);
+    if (proofError) {
+      console.error('Order proof cleanup error:', proofError);
+      return res.status(500).json({ message: 'Bukti pembayaran gagal dihapus; pesanan tidak dihapus.' });
+    }
+  }
+  const { error } = await supabase.from('orders').delete().eq('id', order.id);
+  if (error) throw error;
+  res.json({ message: 'Pesanan berhasil dihapus.' });
+}));
+
+app.post('/api/contact', asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  const { name, email, message } = req.body || {};
+  if (!name || !email || !message) return res.status(400).json({ message: 'Nama, email, dan pesan wajib diisi.' });
+  const { error } = await supabase.from('contact_messages').insert({
+    id: `msg-${randomUUID()}`,
+    name,
+    email,
+    message
+  });
+  if (error) {
+    console.error('Contact message insert error:', error);
+    return res.status(500).json({ message: 'Gagal mengirim pesan.' });
+  }
+  res.status(201).json({ ok: true, message: 'Pesan berhasil dikirim. Tim kami akan segera membalas Anda.' });
+}));
+
+app.use(express.static(path.join(__dirname, 'public')));
+app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api/')) return next();
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.use((error, req, res, next) => {
+  if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({ message: 'Ukuran bukti pembayaran maksimal 5 MB.' });
+  }
+  if (error.message?.startsWith('Format bukti pembayaran') || error.message?.startsWith('Format gambar')) {
+    return res.status(400).json({ message: error.message });
+  }
+  console.error('Unhandled request error:', error);
+  res.status(500).json({ message: 'Terjadi kesalahan pada server.' });
+});
+
+if (require.main === module) {
+  app.listen(PORT, () => console.log(`KRIS DIAMOND SHOP running on http://localhost:${PORT}`));
+}
+
+module.exports = app;

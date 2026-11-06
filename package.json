@@ -1,0 +1,23 @@
+{
+  "name": "krisdiamondshop",
+  "version": "1.0.0",
+  "description": "KRIS DIAMOND SHOP full-stack game top-up platform",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": [
+    "game",
+    "topup",
+    "ecommerce",
+    "shop"
+  ],
+  "author": "Kris Diamond Shop",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.21.2",
+    "multer": "^1.4.5-lts.2",
+    "@supabase/supabase-js": "^2.57.4"
+  }
+}

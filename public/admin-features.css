@@ -1,0 +1,117 @@
+.admin-heading-actions,
+.admin-form-actions,
+.gallery-upload-row,
+.content-editor-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.admin-heading-actions { justify-content: flex-end; }
+.admin-management-panel { margin-top: 14px; scroll-margin-top: 18px; }
+.admin-management-panel > .admin-panel-heading { margin-bottom: 16px; }
+.admin-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(175,160,218,.1);
+  border-radius: 12px;
+  background: rgba(5,4,14,.2);
+}
+.admin-form-grid > label,
+.admin-inline-form > label {
+  display: grid;
+  gap: 6px;
+  color: #b8b2c8;
+  font-size: 10px;
+  font-weight: 600;
+}
+.admin-form-wide { grid-column: 1 / -1; }
+.admin-form-grid small { color: #8e88a4; font-size: 9px; }
+.admin-check { display: flex !important; align-items: center; gap: 8px !important; }
+.admin-check input { accent-color: #8954ff; }
+.admin-form-actions { align-items: center; }
+.admin-form-actions .form-feedback { flex-basis: 100%; }
+.button-danger {
+  min-height: 34px;
+  padding: 0 11px;
+  border: 1px solid rgba(255,111,130,.26);
+  border-radius: 9px;
+  color: #ffb1ba;
+  background: rgba(153,45,65,.14);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 700;
+}
+.button-danger:hover { border-color: rgba(255,111,130,.55); background: rgba(153,45,65,.26); }
+.button-danger:disabled { opacity: .5; cursor: wait; }
+.admin-subsection { margin-top: 20px; }
+.admin-subsection h3 { margin: 0 0 11px; font: 700 14px "Space Grotesk",sans-serif; }
+.gallery-upload-row { margin-bottom: 8px; }
+.gallery-upload-row label { color: #b8b2c8; font-size: 10px; font-weight: 600; }
+.gallery-upload-row input[type="file"] { flex: 1; min-width: 190px; }
+.image-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
+  gap: 9px;
+  margin-top: 11px;
+}
+.gallery-image-card {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid rgba(175,160,218,.1);
+  border-radius: 11px;
+  background: rgba(255,255,255,.02);
+}
+.gallery-image-card img { width: 100%; height: 95px; object-fit: cover; border-radius: 7px; background: #100e20; }
+.gallery-image-card small { overflow: hidden; color: #aaa4ba; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.gallery-image-card > div { display: grid; gap: 5px; }
+.gallery-image-card .button { width: 100%; min-height: 29px; padding-inline: 5px; font-size: 8px; }
+.admin-category-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid rgba(175,160,218,.1);
+  border-radius: 9px;
+  color: #d3cde0;
+  background: rgba(255,255,255,.025);
+  font-size: 10px;
+}
+.admin-chip-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 13px; }
+.admin-inline-form { display: flex; align-items: end; gap: 10px; max-width: 580px; }
+.admin-inline-form > label { flex: 1; }
+.admin-inline-form .input { min-width: 170px; }
+.admin-voucher-form { margin-bottom: 15px; }
+.content-editor-toolbar { justify-content: space-between; margin-bottom: 10px; }
+.content-editor-toolbar .catalog-search { flex: 1; min-width: 210px; }
+.site-content-list { display: grid; gap: 6px; max-height: 520px; overflow: auto; padding: 1px 5px 1px 1px; }
+.site-text-row {
+  display: grid;
+  grid-template-columns: minmax(180px, .8fr) minmax(220px, 1.2fr);
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border: 1px solid rgba(175,160,218,.08);
+  border-radius: 9px;
+  background: rgba(255,255,255,.018);
+}
+.site-text-row > span { color: #c1bbcf; font-size: 9px; line-height: 1.5; overflow-wrap: anywhere; }
+.site-text-row textarea { min-height: 34px; padding: 7px; font-size: 10px; }
+.site-content-preview { position: fixed; top: 0; left: -10000px; width: 1280px; height: 900px; border: 0; visibility: hidden; }
+.data-table td .button + .button { margin-left: 5px; }
+.data-table td .select { min-width: 122px; margin-bottom: 5px; }
+.form-feedback.success { color: #8de4ba; }
+
+@media (max-width: 760px) {
+  .admin-heading-actions { justify-content: flex-start; }
+  .admin-form-grid { grid-template-columns: 1fr; }
+  .admin-form-wide { grid-column: auto; }
+  .admin-inline-form { align-items: stretch; flex-direction: column; }
+  .site-text-row { grid-template-columns: 1fr; gap: 6px; }
+  .gallery-upload-row { align-items: stretch; flex-direction: column; }
+}
