@@ -65,7 +65,7 @@
             <img id="hero-banner-image" src="https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=1200&q=85" alt="Arena esports dengan pencahayaan ungu" />
             <div class="hero-art-overlay"></div>
             <div class="hero-float-card float-status"><span class="status-spark">✦</span><span><strong>Top up cepat</strong><small>Pesanan diproses dengan aman</small></span><i>✓</i></div>
-            <div class="hero-float-card float-discount"><span class="discount-icon">%</span><span><small>Voucher spesial</small><strong>KRIS15</strong></span></div>
+            <div class="hero-float-card float-discount" id="hero-public-promo" hidden><span class="discount-icon">%</span><span><small>Voucher spesial</small><strong id="hero-public-voucher"></strong></span></div>
             <div class="hero-caption"><span class="caption-line"></span><span>YOUR GAME, YOUR NEXT LEVEL</span></div>
           </div>
         </div>
@@ -89,7 +89,7 @@
       <section class="promo-strip" id="promo">
         <div class="container promo-inner">
           <div class="promo-gift" aria-hidden="true">✧</div>
-          <div class="promo-copy"><span class="section-kicker">BONUS UNTUK KAMU</span><h2>Top up makin hemat, main makin semangat.</h2><p>Masukkan kode <strong>KRIS15</strong> saat checkout untuk diskon 15%.</p></div>
+          <div class="promo-copy"><span class="section-kicker">BONUS UNTUK KAMU</span><h2>Top up makin hemat, main makin semangat.</h2><div id="public-voucher-list"><p>Memuat promo aktif...</p></div></div>
           <a class="button button-light" href="#produk">Pakai voucher <span aria-hidden="true">→</span></a>
           <div class="promo-decoration" aria-hidden="true">✦</div>
         </div>
@@ -107,7 +107,7 @@
               <div id="category-list" class="category-list">
                 <button class="category-button active" type="button" data-category="all"><span>✦</span> Semua game</button>
               </div>
-              <div class="sidebar-promo"><span class="sidebar-promo-icon">✧</span><strong>Top Up Lebih Murah!</strong><p>Gunakan kode KRIS15 untuk diskon pembelianmu.</p><a href="#produk">Lihat promo <span aria-hidden="true">→</span></a></div>
+              <div class="sidebar-promo" id="sidebar-public-promo" hidden><span class="sidebar-promo-icon">✧</span><strong>Top Up Lebih Murah!</strong><p id="sidebar-public-voucher">Lihat promo voucher yang sedang aktif.</p><a href="#promo">Lihat promo <span aria-hidden="true">→</span></a></div>
             </aside>
             <div class="catalog-main">
               <div class="catalog-toolbar">
@@ -225,7 +225,7 @@
             <details class="faq-item"><summary>Apakah aman memberikan User ID?</summary><p>Ya. User ID hanya digunakan untuk membantu proses top up. Kami tidak pernah meminta password akun game.</p></details>
             <details class="faq-item"><summary>Bagaimana cara membayar pesanan?</summary><p>Buat pesanan, ikuti informasi metode pembayaran yang dipilih, lalu kirim bukti pembayaran melalui bagian cek pesanan.</p></details>
             <details class="faq-item"><summary>Di mana saya bisa melihat status transaksi?</summary><p>Gunakan bagian Cek Pesanan dan masukkan ID pesanan. Status akan diperbarui otomatis secara berkala.</p></details>
-            <details class="faq-item"><summary>Apa fungsi kode KRIS15?</summary><p>Masukkan kode voucher KRIS15 di checkout untuk mendapatkan diskon 15% dari harga produk.</p></details>
+            <details class="faq-item"><summary>Bagaimana cara menggunakan voucher?</summary><p>Masukkan kode voucher yang Anda miliki saat checkout. Voucher yang sedang dipublikasikan juga akan ditampilkan di halaman toko.</p></details>
           </div>
         </div>
       </section>

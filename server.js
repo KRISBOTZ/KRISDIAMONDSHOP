@@ -497,6 +497,7 @@ function validateVoucherInput(body) {
       discount_type: discountType,
       discount_value: discountValue,
       active: body?.active !== false,
+      is_public: body?.isPublic === true,
       starts_at: startsAt,
       expires_at: expiresAt,
       max_uses: maxUses
@@ -653,6 +654,19 @@ app.post('/api/vouchers/validate', asyncRoute(async (req, res) => {
     ? Math.round(price * data.discount_value / 100)
     : Math.min(price, data.discount_value);
   res.json({ code, discount, message: 'Kode voucher berhasil digunakan.' });
+}));
+
+app.get('/api/public-vouchers', asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  const { data, error } = await supabase.from('vouchers')
+    .select('code,discount_type,discount_value,starts_at,expires_at,max_uses,uses')
+    .eq('active', true)
+    .eq('is_public', true)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  const now = Date.now();
+  const items = (data || []).filter((voucher) => !getVoucherUnavailableMessage({ ...voucher, active: true }, now));
+  res.json({ items });
 }));
 
 app.get('/api/categories', asyncRoute(async (req, res) => {

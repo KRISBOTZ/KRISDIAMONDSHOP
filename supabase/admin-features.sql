@@ -26,12 +26,16 @@ create table if not exists public.vouchers (
   discount_type text not null check (discount_type in ('percent', 'fixed')),
   discount_value integer not null check (discount_value > 0),
   active boolean not null default true,
+  is_public boolean not null default false,
   starts_at timestamptz,
   expires_at timestamptz,
   max_uses integer check (max_uses is null or max_uses > 0),
   uses integer not null default 0 check (uses >= 0),
   created_at timestamptz not null default now()
 );
+
+alter table public.vouchers
+  add column if not exists is_public boolean not null default false;
 
 create table if not exists public.payment_methods (
   id text primary key,

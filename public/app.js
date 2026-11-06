@@ -201,6 +201,44 @@ function getPageMode() {
   return window.location.pathname.includes('/admin') ? 'admin' : 'home';
 }
 
+async function loadPublicVouchers() {
+  const promoList = document.getElementById('public-voucher-list');
+  if (!promoList) return;
+  const promoSection = document.getElementById('promo');
+  const sidebarPromo = document.getElementById('sidebar-public-promo');
+  const heroPromo = document.getElementById('hero-public-promo');
+  try {
+    const result = await fetchJson(`${API_BASE}/public-vouchers`);
+    const vouchers = result.items || [];
+    if (!vouchers.length) {
+      promoSection.hidden = true;
+      if (sidebarPromo) sidebarPromo.hidden = true;
+      if (heroPromo) heroPromo.hidden = true;
+      return;
+    }
+    promoSection.hidden = false;
+    promoList.innerHTML = vouchers.map((voucher) => `
+      <p class="public-voucher-item">Gunakan kode <strong>${escapeHtml(voucher.code)}</strong> untuk diskon
+        <strong>${voucher.discount_type === 'percent' ? `${Number(voucher.discount_value)}%` : formatRupiah(voucher.discount_value)}</strong>.</p>
+    `).join('');
+    if (sidebarPromo) {
+      sidebarPromo.hidden = false;
+      const firstVoucher = vouchers[0];
+      document.getElementById('sidebar-public-voucher').textContent =
+        `Gunakan kode ${firstVoucher.code} untuk diskon ${firstVoucher.discount_type === 'percent' ? `${Number(firstVoucher.discount_value)}%` : formatRupiah(firstVoucher.discount_value)}.`;
+    }
+    if (heroPromo) {
+      heroPromo.hidden = false;
+      document.getElementById('hero-public-voucher').textContent = vouchers[0].code;
+    }
+  } catch (error) {
+    console.error('Public voucher load failed:', error);
+    promoSection.hidden = true;
+    if (sidebarPromo) sidebarPromo.hidden = true;
+    if (heroPromo) heroPromo.hidden = true;
+  }
+}
+
 async function loadGames() {
   try {
     const result = await fetchJson(`${API_BASE}/games?sort=featured&limit=12`);
@@ -768,6 +806,52 @@ async function initAdminPage() {
     element.hidden = !message;
   };
 
+  const renderProductVariants = (variants = [{ key: '', label: '', price: '' }]) => {
+    const list = document.getElementById('product-variant-list');
+    if (!list) return;
+    list.innerHTML = variants.map((variant) => `
+      <div class="product-variant-row">
+        <input type="hidden" data-variant-key value="${escapeHtml(variant.key || '')}" />
+        <label>Nama nominal<input class="input" data-variant-label maxlength="120" placeholder="Contoh: 100 Diamond" value="${escapeHtml(variant.label || '')}" required /></label>
+        <label>Harga (Rp)<input class="input" data-variant-price type="number" min="0" step="1" placeholder="15000" value="${escapeHtml(variant.price ?? '')}" required /></label>
+        <button class="button button-danger button-small" type="button" data-remove-variant aria-label="Hapus nominal">Hapus</button>
+      </div>
+    `).join('');
+  };
+  renderProductVariants();
+
+  const collectProductVariants = () => {
+    const rows = [...document.querySelectorAll('#product-variant-list .product-variant-row')];
+    if (!rows.length) {
+      setFeatureFeedback('product-feedback', 'Tambahkan minimal satu nominal produk.');
+      return null;
+    }
+    const usedKeys = new Set();
+    const variants = [];
+    for (const [index, row] of rows.entries()) {
+      const label = row.querySelector('[data-variant-label]').value.trim();
+      const price = Number(row.querySelector('[data-variant-price]').value);
+      if (!label || !Number.isSafeInteger(price) || price < 0) {
+        setFeatureFeedback('product-feedback', 'Isi nama nominal dan harga Rupiah dengan benar.');
+        return null;
+      }
+      let key = row.querySelector('[data-variant-key]').value.trim();
+      if (!key) {
+        const base = `nominal-${slugify(label).slice(0, 60) || index + 1}`;
+        key = base;
+        let suffix = 2;
+        while (usedKeys.has(key)) key = `${base}-${suffix++}`;
+      }
+      if (usedKeys.has(key)) {
+        setFeatureFeedback('product-feedback', 'Setiap nominal harus memiliki identitas unik. Hapus lalu tambahkan ulang nominal yang duplikat.');
+        return null;
+      }
+      usedKeys.add(key);
+      variants.push({ key, label, price });
+    }
+    return variants;
+  };
+
   const renderAdminProducts = () => {
     const table = document.getElementById('admin-product-table');
     if (!table) return;
@@ -794,7 +878,7 @@ async function initAdminPage() {
         document.getElementById('product-logo').value = game.logo || '';
         document.getElementById('product-banner').value = game.banner || '';
         document.getElementById('product-status').value = game.status || 'Tersedia';
-        document.getElementById('product-variants').value = JSON.stringify(game.variants, null, 2);
+        renderProductVariants(game.variants);
         document.getElementById('product-featured').checked = Boolean(game.featured);
         document.getElementById('product-bestseller').checked = Boolean(game.bestseller);
         document.getElementById('save-product-button').textContent = 'Simpan perubahan';
@@ -895,7 +979,7 @@ async function initAdminPage() {
         <td>${voucher.discount_type === 'percent' ? `${voucher.discount_value}%` : formatRupiah(voucher.discount_value)}</td>
         <td>${voucher.uses}${voucher.max_uses ? ` / ${voucher.max_uses}` : ' / ∞'}</td>
         <td>${voucher.starts_at ? `Mulai ${new Date(voucher.starts_at).toLocaleString('id-ID')}<br />` : ''}${voucher.expires_at ? `Sampai ${new Date(voucher.expires_at).toLocaleString('id-ID')}` : 'Tanpa batas'}</td>
-        <td>${voucher.active ? 'Aktif' : 'Nonaktif'}</td>
+        <td>${voucher.active ? 'Aktif' : 'Nonaktif'} · ${voucher.is_public ? 'Publik' : 'Private'}</td>
         <td><button class="button button-glass button-small" type="button" data-edit-voucher="${escapeHtml(voucher.code)}">Edit</button><button class="button button-danger button-small" type="button" data-delete-voucher="${escapeHtml(voucher.code)}">Hapus</button></td>
       </tr>
     `).join('') : '<tr><td colspan="6"><div class="empty-state">Belum ada voucher.</div></td></tr>';
@@ -911,6 +995,7 @@ async function initAdminPage() {
       document.getElementById('voucher-starts-at').value = toLocalDateTimeInput(voucher.starts_at);
       document.getElementById('voucher-expires-at').value = toLocalDateTimeInput(voucher.expires_at);
       document.getElementById('voucher-active').checked = Boolean(voucher.active);
+      document.getElementById('voucher-is-public').checked = Boolean(voucher.is_public);
       document.getElementById('save-voucher-button').textContent = 'Simpan perubahan';
       document.getElementById('admin-vouchers').scrollIntoView({ behavior: 'smooth', block: 'start' });
     }));
@@ -1046,20 +1131,38 @@ async function initAdminPage() {
     document.getElementById('admin-product-form').reset();
     document.getElementById('product-original-id').value = '';
     document.getElementById('product-id').disabled = false;
-    document.getElementById('product-variants').value = '[{"key":"nominal-1","label":"100 Diamond","price":15000}]';
+    renderProductVariants();
     document.getElementById('save-product-button').textContent = 'Simpan produk';
   };
+
+  document.getElementById('add-product-variant')?.addEventListener('click', () => {
+    const list = document.getElementById('product-variant-list');
+    const variants = [...list.querySelectorAll('.product-variant-row')].map((row) => ({
+      key: row.querySelector('[data-variant-key]').value,
+      label: row.querySelector('[data-variant-label]').value,
+      price: row.querySelector('[data-variant-price]').value
+    }));
+    variants.push({ key: '', label: '', price: '' });
+    renderProductVariants(variants);
+    list.lastElementChild?.querySelector('[data-variant-label]')?.focus();
+  });
+  document.getElementById('product-variant-list')?.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-remove-variant]');
+    if (!button) return;
+    const row = button.closest('.product-variant-row');
+    const list = document.getElementById('product-variant-list');
+    if (list.querySelectorAll('.product-variant-row').length === 1) {
+      setFeatureFeedback('product-feedback', 'Produk harus memiliki minimal satu nominal.');
+      return;
+    }
+    row.remove();
+  });
 
   document.getElementById('admin-product-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const originalId = document.getElementById('product-original-id').value;
-    let variants;
-    try {
-      variants = JSON.parse(document.getElementById('product-variants').value);
-    } catch {
-      setFeatureFeedback('product-feedback', 'Nominal harus berupa JSON yang valid.');
-      return;
-    }
+    const variants = collectProductVariants();
+    if (!variants) return;
     const payload = {
       id: document.getElementById('product-id').value.trim(),
       name: document.getElementById('product-name').value.trim(),
@@ -1241,7 +1344,8 @@ async function initAdminPage() {
           maxUses: document.getElementById('voucher-max-uses').value || null,
           startsAt: start ? new Date(start).toISOString() : null,
           expiresAt: expiry ? new Date(expiry).toISOString() : null,
-          active: document.getElementById('voucher-active').checked
+          active: document.getElementById('voucher-active').checked,
+          isPublic: document.getElementById('voucher-is-public').checked
         })
       });
       resetVoucherForm();
@@ -1356,9 +1460,19 @@ async function initAdminPage() {
     }
   });
   document.getElementById('refresh-admin-data')?.addEventListener('click', refreshData);
+  document.getElementById('admin-top-search')?.addEventListener('input', (event) => {
+    const orderSearch = document.getElementById('admin-order-search');
+    if (!orderSearch) return;
+    orderSearch.value = event.target.value;
+    orderSearch.dispatchEvent(new Event('input', { bubbles: true }));
+  });
   document.getElementById('admin-order-search')?.addEventListener('input', () => {
     if (!dashboard.hidden) {
       const searchTerm = document.getElementById('admin-order-search').value.trim().toLowerCase();
+      const topSearch = document.getElementById('admin-top-search');
+      if (topSearch && topSearch.value !== document.getElementById('admin-order-search').value) {
+        topSearch.value = document.getElementById('admin-order-search').value;
+      }
       renderAdminOrders(state.adminOrders.filter((order) =>
         `${order.id} ${order.customerName} ${order.customerPhone} ${order.gameName}`.toLowerCase().includes(searchTerm)
       ));
@@ -1519,6 +1633,7 @@ function init() {
     initAdminPage();
   } else {
     setupHomePage();
+    loadPublicVouchers();
     loadGames();
   }
 }
