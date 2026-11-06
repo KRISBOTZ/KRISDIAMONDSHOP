@@ -32,6 +32,7 @@
           <a href="#admin-orders"><span>▤</span> Kelola pesanan <i id="admin-pending-badge">0</i></a>
           <a href="#admin-products"><span>◇</span> Produk &amp; gambar</a>
           <a href="#admin-payments"><span>▣</span> Metode pembayaran</a>
+          <a href="#admin-maintenance"><span>⚙</span> Maintenance</a>
           <a href="#admin-security"><span>⌑</span> Keamanan</a>
           <a href="#admin-categories"><span>▦</span> Kategori</a>
           <a href="#admin-vouchers"><span>%</span> Voucher</a>
@@ -171,6 +172,21 @@
               <div class="admin-form-actions admin-form-wide"><button class="button button-primary" id="save-payment-method" type="submit">Simpan metode</button><button class="button button-glass" id="reset-payment-method" type="button">Metode baru / reset</button><p id="payment-method-feedback" class="form-feedback" role="status" hidden></p></div>
             </form>
             <div class="table-wrap"><table class="data-table"><thead><tr><th>Metode</th><th>Nomor / detail pembayaran</th><th>Gambar QR (opsional)</th><th>Status</th><th>Aksi</th></tr></thead><tbody id="admin-payment-method-table"></tbody></table></div>
+          </section>
+
+          <section class="admin-panel admin-management-panel" id="admin-maintenance">
+            <div class="admin-panel-heading"><div><span class="section-kicker">STATUS WEBSITE</span><h2>Maintenance website</h2><p>Pilih apakah toko tetap bisa dilihat, transaksi dihentikan, atau seluruh pengunjung melihat halaman maintenance.</p></div></div>
+            <form id="maintenance-form" class="admin-form-grid">
+              <label class="admin-form-wide">Mode maintenance
+                <select id="maintenance-mode" class="select">
+                  <option value="off">Nonaktif — website berjalan normal</option>
+                  <option value="transactions">Transaksi — toko tetap tampil, top up dan pesanan baru dihentikan</option>
+                  <option value="full">Penuh — pengunjung hanya melihat halaman maintenance</option>
+                </select>
+              </label>
+              <label class="admin-form-wide">Pesan untuk pengunjung<textarea id="maintenance-message" class="textarea" rows="3" maxlength="240" placeholder="Contoh: Kami sedang memperbarui sistem. Silakan kembali beberapa saat lagi."></textarea><small>Maksimal 240 karakter. Kosongkan untuk menggunakan pesan bawaan.</small></label>
+              <div class="admin-form-actions admin-form-wide"><button class="button button-primary" id="save-maintenance-button" type="submit">Simpan status maintenance</button><p id="maintenance-feedback" class="form-feedback" role="status" hidden></p></div>
+            </form>
           </section>
 
           <section class="admin-panel admin-management-panel" id="admin-security">

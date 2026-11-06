@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#090817" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>Maintenance | KRIS DIAMOND SHOP</title>
+    <style>
+      :root { color-scheme: dark; font-family: Inter, "Segoe UI", sans-serif; background: #090817; color: #f4efff; }
+      * { box-sizing: border-box; }
+      body { display: grid; min-height: 100vh; margin: 0; place-items: center; padding: 24px; background: radial-gradient(ellipse at 50% 20%,rgba(112,67,220,.2),transparent 42rem),#090817; }
+      main { width: min(100%,560px); padding: clamp(28px,7vw,56px); border: 1px solid rgba(181,153,255,.2); border-radius: 24px; background: rgba(18,15,39,.88); box-shadow: 0 24px 80px rgba(0,0,0,.35); text-align: center; }
+      .icon { display: grid; width: 70px; height: 70px; margin: 0 auto 24px; place-items: center; border: 1px solid rgba(193,163,255,.28); border-radius: 22px; color: #d7c3ff; background: rgba(126,79,235,.16); font-size: 32px; }
+      .brand { color: #bca0ff; font-size: 11px; font-weight: 800; letter-spacing: .2em; }
+      h1 { margin: 13px 0; font-size: clamp(26px,6vw,38px); letter-spacing: -.04em; }
+      p { margin: 0; color: #aaa3bd; font-size: 15px; line-height: 1.7; }
+      .status { display: inline-flex; align-items: center; gap: 8px; margin-top: 28px; padding: 9px 13px; border: 1px solid rgba(173,144,244,.18); border-radius: 999px; color: #c9b5ff; background: rgba(115,72,211,.1); font-size: 11px; }
+      .status i { width: 7px; height: 7px; border-radius: 50%; background: #bd9cff; box-shadow: 0 0 12px #9a6cff; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="icon" aria-hidden="true">⚙</div>
+      <div class="brand">KRIS DIAMOND SHOP</div>
+      <h1>Website sedang maintenance</h1>
+      <p id="maintenance-message">Kami sedang melakukan perbaikan agar layanan kembali lebih baik. Silakan kunjungi kembali beberapa saat lagi.</p>
+      <div class="status"><i></i> Sedang dalam pemeliharaan</div>
+    </main>
+    <script>
+      fetch('/api/site-settings')
+        .then((response) => response.ok ? response.json() : Promise.reject(new Error('Pengaturan maintenance tidak tersedia.')))
+        .then(({ items }) => {
+          if (items?.maintenance_message) document.getElementById('maintenance-message').textContent = items.maintenance_message;
+        })
+        .catch((error) => console.error('Maintenance message load failed:', error));
+    </script>
+  </body>
+</html>

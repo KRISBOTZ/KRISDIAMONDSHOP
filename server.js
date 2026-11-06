@@ -625,9 +625,14 @@ app.get('/api/site-content', asyncRoute(async (req, res) => {
 
 app.get('/api/site-settings', asyncRoute(async (req, res) => {
   if (!dbOrError(res)) return;
-  const { data, error } = await supabase.from('site_settings').select('key,value').eq('key', 'hero_banner_url');
+  const { data, error } = await supabase.from('site_settings')
+    .select('key,value')
+    .in('key', ['hero_banner_url', 'maintenance_mode', 'maintenance_message']);
   if (error) throw error;
-  res.json({ items: Object.fromEntries(data.map((item) => [item.key, item.value])) });
+  const items = Object.fromEntries(data.map((item) => [item.key, item.value]));
+  items.maintenance_mode ||= 'off';
+  items.maintenance_message ||= '';
+  res.json({ items });
 }));
 
 app.get('/api/payment-methods', asyncRoute(async (req, res) => {
@@ -820,20 +825,40 @@ app.patch('/api/admin/content', adminOnly, asyncRoute(async (req, res) => {
 
 app.patch('/api/admin/site-settings', adminOnly, asyncRoute(async (req, res) => {
   if (!dbOrError(res)) return;
-  const heroBannerUrl = String(req.body?.heroBannerUrl || '').trim();
-  if (!heroBannerUrl) return res.status(400).json({ message: 'URL gambar banner wajib diisi.' });
-  try {
-    if (!['http:', 'https:'].includes(new URL(heroBannerUrl).protocol)) throw new Error('invalid protocol');
-  } catch {
-    return res.status(400).json({ message: 'URL banner harus menggunakan HTTP atau HTTPS.' });
+  const rows = [];
+  const updated = {};
+  if (Object.hasOwn(req.body || {}, 'heroBannerUrl')) {
+    const heroBannerUrl = String(req.body.heroBannerUrl || '').trim();
+    if (!heroBannerUrl) return res.status(400).json({ message: 'URL gambar banner wajib diisi.' });
+    try {
+      if (!['http:', 'https:'].includes(new URL(heroBannerUrl).protocol)) throw new Error('invalid protocol');
+    } catch {
+      return res.status(400).json({ message: 'URL banner harus menggunakan HTTP atau HTTPS.' });
+    }
+    rows.push({ key: 'hero_banner_url', value: heroBannerUrl });
+    updated.heroBannerUrl = heroBannerUrl;
   }
-  const { error } = await supabase.from('site_settings').upsert({
-    key: 'hero_banner_url',
-    value: heroBannerUrl,
+  if (Object.hasOwn(req.body || {}, 'maintenanceMode')) {
+    const maintenanceMode = String(req.body.maintenanceMode || '');
+    if (!['off', 'transactions', 'full'].includes(maintenanceMode)) {
+      return res.status(400).json({ message: 'Pilih mode maintenance yang valid.' });
+    }
+    const maintenanceMessage = String(req.body.maintenanceMessage || '').trim();
+    if (maintenanceMessage.length > 240) return res.status(400).json({ message: 'Pesan maintenance maksimal 240 karakter.' });
+    rows.push(
+      { key: 'maintenance_mode', value: maintenanceMode },
+      { key: 'maintenance_message', value: maintenanceMessage }
+    );
+    updated.maintenanceMode = maintenanceMode;
+    updated.maintenanceMessage = maintenanceMessage;
+  }
+  if (!rows.length) return res.status(400).json({ message: 'Tidak ada pengaturan yang diperbarui.' });
+  const { error } = await supabase.from('site_settings').upsert(rows.map((row) => ({
+    ...row,
     updated_at: new Date().toISOString()
-  }, { onConflict: 'key' });
+  })), { onConflict: 'key' });
   if (error) throw error;
-  res.json({ message: 'Banner utama berhasil diperbarui.', item: { heroBannerUrl } });
+  res.json({ message: 'Pengaturan website berhasil diperbarui.', item: updated });
 }));
 
 app.get('/api/admin/vouchers', adminOnly, asyncRoute(async (req, res) => {
@@ -947,6 +972,21 @@ app.delete('/api/admin/vouchers/:code', adminOnly, asyncRoute(async (req, res) =
 
 app.post('/api/orders', async (req, res) => {
   if (!dbOrError(res)) return;
+  try {
+    const { data: maintenanceSettings, error: settingsError } = await supabase.from('site_settings')
+      .select('key,value')
+      .in('key', ['maintenance_mode', 'maintenance_message']);
+    if (settingsError) throw settingsError;
+    const settings = Object.fromEntries((maintenanceSettings || []).map((item) => [item.key, item.value]));
+    if (settings.maintenance_mode && settings.maintenance_mode !== 'off') {
+      return res.status(503).json({
+        message: settings.maintenance_message || 'Transaksi sedang dihentikan sementara karena maintenance. Silakan coba kembali nanti.'
+      });
+    }
+  } catch (error) {
+    console.error('Order maintenance check error:', error);
+    return res.status(500).json({ message: 'Status maintenance tidak dapat diperiksa. Silakan coba kembali.' });
+  }
   const {
     gameId, variantKey, customerName, customerPhone, customerEmail,
     userIdInput, serverId, paymentMethod, voucherCode, note
@@ -1209,11 +1249,30 @@ app.post('/api/contact', asyncRoute(async (req, res) => {
   res.status(201).json({ ok: true, message: 'Pesan berhasil dikirim. Tim kami akan segera membalas Anda.' });
 }));
 
-app.use(express.static(path.join(__dirname, 'public')));
+async function sendStorefrontPage(req, res, next) {
+  try {
+    if (supabase) {
+      const { data, error } = await supabase.from('site_settings').select('value')
+        .eq('key', 'maintenance_mode').maybeSingle();
+      if (error) throw error;
+      if (data?.value === 'full') {
+        return res.sendFile(path.join(__dirname, 'public', 'maintenance.html'));
+      }
+    }
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  } catch (error) {
+    console.error('Storefront maintenance check error:', error);
+    next(error);
+  }
+}
+
 app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
+app.get('/', sendStorefrontPage);
+app.get('/index.html', sendStorefrontPage);
+app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 app.get('*', (req, res, next) => {
   if (req.path.startsWith('/api/')) return next();
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  sendStorefrontPage(req, res, next);
 });
 
 app.use((error, req, res, next) => {

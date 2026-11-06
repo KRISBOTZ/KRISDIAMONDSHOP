@@ -125,6 +125,19 @@ function applySiteSettings(settings) {
   if (heroBanner && state.siteSettings.hero_banner_url) {
     heroBanner.src = state.siteSettings.hero_banner_url;
   }
+  const transactionMaintenance = state.siteSettings.maintenance_mode === 'transactions';
+  const maintenanceBanner = document.getElementById('transaction-maintenance-banner');
+  if (maintenanceBanner) {
+    maintenanceBanner.textContent = state.siteSettings.maintenance_message
+      || 'Transaksi dan top up sedang dihentikan sementara. Silakan coba kembali nanti.';
+    maintenanceBanner.hidden = !transactionMaintenance;
+  }
+  const checkoutForm = document.getElementById('checkout-form');
+  if (checkoutForm) {
+    checkoutForm.querySelectorAll('input,select,textarea,button').forEach((control) => {
+      control.disabled = transactionMaintenance;
+    });
+  }
 }
 
 async function loadSiteContentOverrides() {
@@ -1108,6 +1121,10 @@ async function initAdminPage() {
     applySiteSettings(settings.items || {});
     const heroBannerUrl = document.getElementById('hero-banner-url');
     if (heroBannerUrl) heroBannerUrl.value = state.siteSettings.hero_banner_url || '';
+    const maintenanceMode = document.getElementById('maintenance-mode');
+    const maintenanceMessage = document.getElementById('maintenance-message');
+    if (maintenanceMode) maintenanceMode.value = state.siteSettings.maintenance_mode || 'off';
+    if (maintenanceMessage) maintenanceMessage.value = state.siteSettings.maintenance_message || '';
     const frame = document.getElementById('site-content-preview');
     await Promise.all(frame ? [frame].map((item) => item.contentDocument?.readyState === 'complete'
       ? Promise.resolve()
@@ -1305,6 +1322,27 @@ async function initAdminPage() {
       setFeatureFeedback('hero-banner-feedback', result.message, true);
     } catch (error) {
       setFeatureFeedback('hero-banner-feedback', getErrorMessage(error, 'Gagal memperbarui banner utama.'));
+    }
+  });
+
+  document.getElementById('maintenance-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const button = document.getElementById('save-maintenance-button');
+    button.disabled = true;
+    try {
+      const result = await fetchJson(`${API_BASE}/admin/site-settings`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          maintenanceMode: document.getElementById('maintenance-mode').value,
+          maintenanceMessage: document.getElementById('maintenance-message').value.trim()
+        })
+      });
+      setFeatureFeedback('maintenance-feedback', result.message || 'Status maintenance berhasil diperbarui.', true);
+      if (result.item) applySiteSettings({ ...state.siteSettings, maintenance_mode: result.item.maintenanceMode, maintenance_message: result.item.maintenanceMessage });
+    } catch (error) {
+      setFeatureFeedback('maintenance-feedback', getErrorMessage(error, 'Gagal memperbarui status maintenance.'));
+    } finally {
+      button.disabled = false;
     }
   });
 
