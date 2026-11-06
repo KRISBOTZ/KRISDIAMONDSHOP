@@ -82,10 +82,10 @@ values (
   'product-images',
   'product-images',
   true,
-  5242880,
+  15728640,
   array['image/jpeg', 'image/png', 'image/webp']
 )
 on conflict (id) do update set
   public = true,
-  file_size_limit = 5242880,
+  file_size_limit = 15728640,
   allowed_mime_types = excluded.allowed_mime_types;

@@ -75,7 +75,7 @@
   border-radius: 11px;
   background: rgba(255,255,255,.02);
 }
-.gallery-image-card img { width: 100%; height: 95px; object-fit: cover; border-radius: 7px; background: #100e20; }
+.gallery-image-card img { width: 100%; height: 95px; object-fit: cover; border-radius: 7px; }
 .gallery-image-card small { overflow: hidden; color: #aaa4ba; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 .gallery-image-card > div { display: grid; gap: 5px; }
 .gallery-image-card .button { width: 100%; min-height: 29px; padding-inline: 5px; font-size: 8px; }

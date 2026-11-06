@@ -85,7 +85,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   box-shadow: 0 6px 24px rgba(111, 53, 246, .36), inset 0 1px 0 rgba(255,255,255,.35);
   font: 700 20px "Space Grotesk", sans-serif;
 }
-.brand-logo-image { display: block; width: 100%; height: 100%; border-radius: inherit; object-fit: contain; }
+.brand-logo-image { display: block; width: 100%; height: 100%; object-fit: contain; }
+.brand-mark.has-custom-logo { border-color: transparent; background: transparent; box-shadow: none; }
 .brand-name { display: grid; color: #fff; font: 700 13px "Space Grotesk", sans-serif; letter-spacing: .045em; line-height: 1.15; }
 .brand-name strong { color: #c5aaff; }
 .brand-name small { margin-top: 3px; color: #85809d; font: 600 8px "DM Sans", sans-serif; letter-spacing: .19em; }
@@ -401,7 +402,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .form-feedback { margin: 2px 0; color: #ffaaa9; font-size: 10px; line-height: 1.5; }
 .form-feedback.success { color: #8de4ba; }
 .payment-method-preview, .payment-order-details { display: grid; justify-items: start; gap: 8px; margin-top: 9px; padding: 10px; border: 1px solid rgba(175,160,218,.1); border-radius: 10px; background: rgba(255,255,255,.025); }
-.payment-method-preview img, .payment-order-details img { max-width: min(100%,240px); max-height: 240px; border-radius: 8px; object-fit: contain; background: #fff; }
+.payment-method-preview img, .payment-order-details img { max-width: min(100%,240px); max-height: 240px; border-radius: 8px; object-fit: contain; }
 .payment-method-preview p, .payment-order-details p { margin: 0; color: #b6b0c6; font-size: 10px; line-height: 1.6; white-space: pre-line; }
 .payment-order-details h4 { margin: 0; color: #ddd4f3; font-size: 11px; }
 

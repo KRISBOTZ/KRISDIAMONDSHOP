@@ -117,8 +117,8 @@
               <label class="admin-form-wide">Deskripsi<textarea id="product-description" class="textarea" rows="2"></textarea></label>
               <label>Gambar kartu<input id="product-logo" class="input" type="url" placeholder="Pilih dari galeri atau tempel URL" /></label>
               <label>Gambar banner<input id="product-banner" class="input" type="url" placeholder="Pilih dari galeri atau tempel URL" /></label>
-              <label>Upload file gambar kartu<input id="product-logo-file" class="input" type="file" accept="image/jpeg,image/png,image/webp" /></label>
-              <label>Upload file gambar banner<input id="product-banner-file" class="input" type="file" accept="image/jpeg,image/png,image/webp" /></label>
+              <label>Upload file gambar kartu<input id="product-logo-file" class="input" type="file" accept="image/jpeg,image/png,image/webp" /><small>JPG, PNG, atau WEBP; maksimal 15 MB.</small></label>
+              <label>Upload file gambar banner<input id="product-banner-file" class="input" type="file" accept="image/jpeg,image/png,image/webp" /><small>JPG, PNG, atau WEBP; maksimal 15 MB.</small></label>
               <div class="admin-form-wide variant-editor">
                 <div class="variant-editor-heading"><span>Daftar nominal &amp; harga</span><button class="button button-glass button-small" id="add-product-variant" type="button">+ Tambah nominal</button></div>
                 <p class="variant-editor-help">Tambahkan harga untuk diamond, UC, point, atau nominal top up lainnya. Harga diisi dalam Rupiah.</p>
@@ -140,6 +140,7 @@
                 <input id="brand-logo-url" class="input" type="url" placeholder="Pilih dari galeri atau tempel URL" />
                 <label for="brand-logo-file">Upload logo</label>
                 <input id="brand-logo-file" class="input" type="file" accept="image/jpeg,image/png,image/webp" />
+                <small>JPG, PNG, atau WEBP; maksimal 15 MB. PNG transparan akan tetap transparan.</small>
                 <button class="button button-primary" type="submit">Simpan logo</button>
               </form>
               <p id="brand-logo-feedback" class="form-feedback" role="status" hidden></p>
@@ -151,13 +152,14 @@
                 <input id="hero-banner-url" class="input" type="url" placeholder="Pilih gambar dari galeri atau tempel URL" />
                 <label for="hero-banner-file">Upload banner</label>
                 <input id="hero-banner-file" class="input" type="file" accept="image/jpeg,image/png,image/webp" />
+                <small>JPG, PNG, atau WEBP; maksimal 15 MB.</small>
                 <button class="button button-primary" type="submit">Simpan banner utama</button>
               </form>
               <p id="hero-banner-feedback" class="form-feedback" role="status" hidden></p>
             </div>
             <div class="admin-subsection">
               <h3>Galeri gambar</h3>
-              <form id="gallery-upload-form" class="gallery-upload-row"><label for="gallery-image">Upload dari perangkat</label><input id="gallery-image" class="input" type="file" accept="image/jpeg,image/png,image/webp" required /><button class="button button-primary" type="submit">Upload gambar</button></form>
+              <form id="gallery-upload-form" class="gallery-upload-row"><label for="gallery-image">Upload dari perangkat</label><input id="gallery-image" class="input" type="file" accept="image/jpeg,image/png,image/webp" required /><small>JPG, PNG, atau WEBP; maksimal 15 MB.</small><button class="button button-primary" type="submit">Upload gambar</button></form>
               <p id="gallery-feedback" class="form-feedback" role="status" hidden></p>
               <div id="image-gallery" class="image-gallery"><div class="empty-state">Galeri akan dimuat setelah admin masuk.</div></div>
             </div>

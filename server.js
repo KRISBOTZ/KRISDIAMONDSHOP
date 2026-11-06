@@ -19,18 +19,6 @@ const upload = multer({
     callback(null, true);
   }
 });
-const imageUpload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (req, file, callback) => {
-    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype)) {
-      callback(new Error('Format gambar harus JPG, PNG, atau WEBP.'));
-      return;
-    }
-    callback(null, true);
-  }
-});
-
 const supabaseUrl = (process.env.SUPABASE_URL || '').trim();
 const supabaseKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || '').trim();
 let supabaseConfigError = '';
@@ -852,18 +840,23 @@ app.delete('/api/admin/contact-messages/:id', adminOnly, asyncRoute(async (req, 
   res.json({ message: 'Pesan berhasil dihapus.' });
 }));
 
-app.post('/api/admin/gallery', adminOnly, imageUpload.single('image'), asyncRoute(async (req, res) => {
+app.post('/api/admin/gallery/upload-url', adminOnly, asyncRoute(async (req, res) => {
   if (!dbOrError(res)) return;
-  if (!req.file) return res.status(400).json({ message: 'Pilih gambar JPG, PNG, atau WEBP.' });
-  const extension = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }[req.file.mimetype];
+  const contentType = String(req.body?.contentType || '');
+  const size = Number(req.body?.size);
+  const extension = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }[contentType];
+  if (!extension) return res.status(400).json({ message: 'Pilih gambar JPG, PNG, atau WEBP.' });
+  if (!Number.isSafeInteger(size) || size <= 0 || size > 15 * 1024 * 1024) {
+    return res.status(413).json({ message: 'Ukuran gambar maksimal 15 MB.' });
+  }
   const imagePath = `${randomUUID()}.${extension}`;
-  const { error } = await supabase.storage.from('product-images').upload(imagePath, req.file.buffer, {
-    contentType: req.file.mimetype,
-    upsert: false
-  });
+  const { data, error } = await supabase.storage.from('product-images').createSignedUploadUrl(imagePath);
   if (error) throw error;
-  const { data } = supabase.storage.from('product-images').getPublicUrl(imagePath);
-  res.status(201).json({ item: { name: imagePath, url: data.publicUrl }, message: 'Gambar berhasil diunggah.' });
+  const { data: publicUrl } = supabase.storage.from('product-images').getPublicUrl(imagePath);
+  res.status(201).json({
+    item: { name: imagePath, path: data.path, signedUrl: data.signedUrl, url: publicUrl.publicUrl },
+    message: 'URL unggah gambar berhasil dibuat.'
+  });
 }));
 
 app.delete('/api/admin/gallery/:name', adminOnly, asyncRoute(async (req, res) => {
@@ -1425,7 +1418,7 @@ app.get('*', (req, res, next) => {
 
 app.use((error, req, res, next) => {
   if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
-    return res.status(413).json({ message: 'Ukuran file maksimal 5 MB.' });
+    return res.status(413).json({ message: 'Ukuran bukti pembayaran maksimal 5 MB.' });
   }
   if (error.message?.startsWith('Format bukti pembayaran') || error.message?.startsWith('Format gambar')) {
     return res.status(400).json({ message: error.message });

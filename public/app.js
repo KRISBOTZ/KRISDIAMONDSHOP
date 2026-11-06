@@ -126,6 +126,7 @@ function applySiteSettings(settings) {
     heroBanner.src = state.siteSettings.hero_banner_url;
   }
   document.querySelectorAll('.brand-mark').forEach((mark) => {
+    mark.classList.toggle('has-custom-logo', Boolean(state.siteSettings.brand_logo_url));
     mark.innerHTML = state.siteSettings.brand_logo_url
       ? `<img class="brand-logo-image" src="${escapeHtml(state.siteSettings.brand_logo_url)}" alt="Logo KRIS DIAMOND SHOP" />`
       : 'K';
@@ -249,13 +250,33 @@ async function uploadImageFile(file) {
   if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
     throw new Error('Pilih gambar JPG, PNG, atau WEBP.');
   }
-  if (file.size > 5 * 1024 * 1024) {
-    throw new Error('Ukuran gambar maksimal 5 MB.');
+  if (file.size > 15 * 1024 * 1024) {
+    throw new Error('Ukuran gambar maksimal 15 MB.');
   }
-  const formData = new FormData();
-  formData.append('image', file);
-  const result = await fetchJson(`${API_BASE}/admin/gallery`, { method: 'POST', body: formData });
-  return result.item.url;
+  const { item } = await fetchJson(`${API_BASE}/admin/gallery/upload-url`, {
+    method: 'POST',
+    body: JSON.stringify({ contentType: file.type, size: file.size })
+  });
+  const uploadResponse = await fetch(item.signedUrl, {
+    method: 'PUT',
+    headers: {
+      'content-type': file.type,
+      'x-upsert': 'false'
+    },
+    body: file
+  });
+  if (!uploadResponse.ok) {
+    let message = 'Gagal mengunggah gambar ke penyimpanan.';
+    const responseText = await uploadResponse.text();
+    try {
+      const error = JSON.parse(responseText);
+      message = error.message || error.error || message;
+    } catch {
+      if (responseText) message = responseText;
+    }
+    throw new Error(message);
+  }
+  return item.url;
 }
 
 function getPageMode() {
@@ -1369,15 +1390,14 @@ async function initAdminPage() {
 
   document.getElementById('gallery-upload-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
-    const formData = new FormData();
+    const form = event.currentTarget;
     const file = document.getElementById('gallery-image').files[0];
     if (!file) return;
-    formData.append('image', file);
-    const button = event.currentTarget.querySelector('button[type="submit"]');
+    const button = form.querySelector('button[type="submit"]');
     button.disabled = true;
     try {
-      await fetchJson(`${API_BASE}/admin/gallery`, { method: 'POST', body: formData });
-      event.currentTarget.reset();
+      await uploadImageFile(file);
+      form.reset();
       setFeatureFeedback('gallery-feedback', 'Gambar berhasil diunggah ke galeri.', true);
       await loadAdminGallery();
     } catch (error) {
@@ -1427,6 +1447,7 @@ async function initAdminPage() {
 
   document.getElementById('admin-password-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
+    const form = event.currentTarget;
     const currentPassword = document.getElementById('admin-current-password').value;
     const newPassword = document.getElementById('admin-new-password').value;
     const confirmPassword = document.getElementById('admin-confirm-password').value;
@@ -1434,7 +1455,7 @@ async function initAdminPage() {
       setFeatureFeedback('admin-password-feedback', 'Konfirmasi kata sandi baru tidak sama.');
       return;
     }
-    const button = event.currentTarget.querySelector('button[type="submit"]');
+    const button = form.querySelector('button[type="submit"]');
     button.disabled = true;
     try {
       const result = await fetchJson(`${API_BASE}/admin/change-password`, {
@@ -1443,7 +1464,7 @@ async function initAdminPage() {
       });
       localStorage.setItem('adminSessionToken', result.token);
       localStorage.setItem('adminUsername', result.username);
-      event.currentTarget.reset();
+      form.reset();
       setFeatureFeedback('admin-password-feedback', result.message, true);
     } catch (error) {
       setFeatureFeedback('admin-password-feedback', getErrorMessage(error, 'Gagal mengubah kata sandi.'));
@@ -1454,12 +1475,13 @@ async function initAdminPage() {
 
   document.getElementById('category-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
+    const form = event.currentTarget;
     try {
       await fetchJson(`${API_BASE}/admin/categories`, {
         method: 'POST',
         body: JSON.stringify({ name: document.getElementById('new-category-name').value.trim() })
       });
-      event.currentTarget.reset();
+      form.reset();
       setFeatureFeedback('category-feedback', 'Kategori berhasil ditambahkan.', true);
       await loadAdminCategories();
     } catch (error) {
@@ -1469,7 +1491,8 @@ async function initAdminPage() {
 
   document.getElementById('hero-banner-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
-    const button = event.currentTarget.querySelector('button[type="submit"]');
+    const form = event.currentTarget;
+    const button = form.querySelector('button[type="submit"]');
     button.disabled = true;
     try {
       let heroBannerUrl = document.getElementById('hero-banner-url').value.trim();
@@ -1482,7 +1505,7 @@ async function initAdminPage() {
       setFeatureFeedback('hero-banner-feedback', result.message, true);
       state.siteSettings.hero_banner_url = heroBannerUrl;
       applySiteSettings(state.siteSettings);
-      event.currentTarget.reset();
+      form.reset();
       document.getElementById('hero-banner-url').value = heroBannerUrl;
     } catch (error) {
       setFeatureFeedback('hero-banner-feedback', getErrorMessage(error, 'Gagal memperbarui banner utama.'));
@@ -1493,7 +1516,8 @@ async function initAdminPage() {
 
   document.getElementById('site-identity-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
-    const button = event.currentTarget.querySelector('button[type="submit"]');
+    const form = event.currentTarget;
+    const button = form.querySelector('button[type="submit"]');
     button.disabled = true;
     try {
       let brandLogoUrl = document.getElementById('brand-logo-url').value.trim();
@@ -1506,7 +1530,7 @@ async function initAdminPage() {
       setFeatureFeedback('brand-logo-feedback', result.message, true);
       state.siteSettings.brand_logo_url = brandLogoUrl;
       applySiteSettings(state.siteSettings);
-      event.currentTarget.reset();
+      form.reset();
       document.getElementById('brand-logo-url').value = brandLogoUrl;
     } catch (error) {
       setFeatureFeedback('brand-logo-feedback', getErrorMessage(error, 'Gagal memperbarui logo website.'));
