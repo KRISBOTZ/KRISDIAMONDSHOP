@@ -236,7 +236,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .catalog-heading { align-items: center; }
 .catalog-count { display: inline-flex; align-items: center; gap: 8px; color: #aaa3bf; font-size: 10px; }
 .catalog-layout { display: grid; grid-template-columns: 196px minmax(0,1fr); gap: 21px; align-items: start; }
-.category-sidebar { position: sticky; top: 98px; display: grid; gap: 14px; }
+.category-sidebar { position: sticky; top: 98px; display: grid; gap: 14px; padding: 14px 12px; border: 1px solid rgba(164,145,210,.17); border-radius: 15px; background: rgba(8,7,20,.48); }
 .category-sidebar h3 { margin: 0 0 2px; color: #dcd7ea; font: 700 13px "Space Grotesk",sans-serif; }
 .category-list { display: grid; gap: 5px; }
 .category-button { display: flex; min-height: 37px; align-items: center; gap: 9px; padding: 0 10px; border: 1px solid transparent; border-radius: 9px; color: #aaa5bd; background: transparent; cursor: pointer; text-align: left; font-size: 10px; transition: .18s ease; }
@@ -265,15 +265,22 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .select { width: auto; min-width: 145px; cursor: pointer; }
 .select option { color: var(--text); background: #121126; }
 .input::placeholder, .textarea::placeholder { color: #77728c; }
-.product-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 12px; }
+.product-grid { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 12px; }
 .product-card { overflow: hidden; padding: 8px 8px 10px; border-radius: 15px; transition: transform .2s ease,border-color .2s ease,box-shadow .2s ease; }
-.product-card img { width: 100%; height: 106px; border-radius: 10px; object-fit: cover; }
-.product-card .product-meta { min-height: 25px; margin: 10px 1px 0; }
+.product-card-image { position: relative; overflow: hidden; height: 128px; border-radius: 10px; background: #090817; }
+.product-card-image::after { position: absolute; inset: 30% 0 0; background: linear-gradient(transparent,rgba(8,7,20,.88)); content: ""; pointer-events: none; }
+.product-card-image img { width: 100%; height: 100%; object-fit: cover; transition: transform .25s ease; }
+.product-card:hover .product-card-image img { transform: scale(1.05); }
+.product-game-label { position: absolute; z-index: 1; right: 7px; bottom: 7px; left: 7px; overflow: hidden; color: #f3edff; font-size: 9px; font-weight: 700; text-overflow: ellipsis; text-shadow: 0 1px 5px #000; white-space: nowrap; }
+.product-card .product-meta { display: grid; min-height: 39px; justify-items: center; align-content: center; gap: 3px; margin: 8px 1px 0; text-align: center; }
+.product-card h3 { overflow: hidden; max-width: 100%; color: #f1edfc; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.product-bonus { padding: 2px 6px; border-radius: 999px; color: #211507; background: #ffbf3f; font-size: 8px; font-weight: 800; }
 .product-card .card-body { display: none; }
-.product-card .price-row { margin: 5px 1px 9px; color: #a7a1b9; font-size: 9px; }
-.product-card .product-price { color: #eee9fb; font: 700 10px "Space Grotesk",sans-serif; }
+.product-card .price-row { display: grid; justify-items: center; gap: 2px; min-height: 33px; margin: 5px 1px 9px; color: #a7a1b9; font-size: 8px; }
+.product-card .product-price { color: #eee9fb; font: 700 12px "Space Grotesk",sans-serif; }
 .product-card .button, .product-card .btn { width: 100%; }
-.product-card .btn { min-height: 31px; padding: 0 8px; border-radius: 8px; font-size: 9px; }
+.product-card .button { min-height: 36px; padding-inline: 5px; border-radius: 9px; font-size: 9px; }
+.product-card .button span { margin-right: 3px; }
 
 .checkout-section { padding-top: 65px; border-top: 1px solid rgba(166,143,255,.08); background: linear-gradient(180deg,rgba(13,11,29,.35),transparent); }
 .checkout-steps { display: flex; align-items: center; gap: 8px; color: #8d87a4; font-size: 9px; }
@@ -583,7 +590,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .catalog-search { min-height: 38px; }
   .catalog-toolbar .select { min-width: 118px; min-height: 38px; padding-inline: 8px; font-size: 9px; }
   .product-grid { gap: 8px; }
-  .product-card img { height: 94px; }
+  .product-card-image { height: 94px; }
   .product-card h3 { font-size: 9px; }
   .product-card .card-tag { display: none; }
   .checkout-section { padding-top: 48px; }

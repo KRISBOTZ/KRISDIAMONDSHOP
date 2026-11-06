@@ -181,15 +181,17 @@
           <section class="admin-panel admin-management-panel" id="admin-vouchers">
             <div class="admin-panel-heading"><div><span class="section-kicker">PROMO CHECKOUT</span><h2>Kode voucher</h2><p>Voucher yang aktif akan divalidasi server saat checkout.</p></div></div>
             <form id="voucher-form" class="admin-form-grid">
-              <label>Kode voucher<input id="voucher-admin-code" class="input" required maxlength="30" placeholder="HEMAT20" /></label>
+              <input id="voucher-original-code" type="hidden" />
+              <label>Kode voucher<input id="voucher-admin-code" class="input" required maxlength="30" pattern="[A-Za-z0-9_-]{3,30}" title="Gunakan 3–30 huruf, angka, tanda hubung, atau garis bawah." placeholder="HEMAT20" /></label>
               <label>Jenis diskon<select id="voucher-discount-type" class="select"><option value="percent">Persentase (%)</option><option value="fixed">Potongan Rupiah</option></select></label>
-              <label>Nilai diskon<input id="voucher-discount-value" class="input" type="number" min="1" required /></label>
-              <label>Batas pemakaian<input id="voucher-max-uses" class="input" type="number" min="1" placeholder="Kosong = tanpa batas" /></label>
+              <label>Nilai diskon<input id="voucher-discount-value" class="input" type="number" min="1" max="100" step="1" required /><small>Persentase maksimal 100%; potongan Rupiah mengikuti harga produk.</small></label>
+              <label>Batas pemakaian<input id="voucher-max-uses" class="input" type="number" min="1" step="1" placeholder="Kosong = tanpa batas" /></label>
+              <label>Mulai berlaku<input id="voucher-starts-at" class="input" type="datetime-local" /></label>
               <label>Berlaku sampai<input id="voucher-expires-at" class="input" type="datetime-local" /></label>
               <label class="admin-check"><input id="voucher-active" type="checkbox" checked /> Aktif</label>
-              <div class="admin-form-actions admin-form-wide"><button class="button button-primary" type="submit">Buat voucher</button><p id="voucher-feedback" class="form-feedback" role="status" hidden></p></div>
+              <div class="admin-form-actions admin-form-wide"><button class="button button-primary" id="save-voucher-button" type="submit">Buat voucher</button><button class="button button-glass" id="reset-voucher-form" type="button">Voucher baru / reset</button><p id="voucher-feedback" class="form-feedback" role="status" hidden></p></div>
             </form>
-            <div class="table-wrap"><table class="data-table"><thead><tr><th>Kode</th><th>Diskon</th><th>Pemakaian</th><th>Kedaluwarsa</th><th>Status</th><th>Aksi</th></tr></thead><tbody id="admin-voucher-table"></tbody></table></div>
+            <div class="table-wrap"><table class="data-table"><thead><tr><th>Kode</th><th>Diskon</th><th>Pemakaian</th><th>Masa berlaku</th><th>Status</th><th>Aksi</th></tr></thead><tbody id="admin-voucher-table"></tbody></table></div>
           </section>
 
           <section class="admin-panel admin-management-panel" id="admin-content">

@@ -454,6 +454,56 @@ async function redeemVoucher(voucher) {
   return false;
 }
 
+function getVoucherUnavailableMessage(voucher, now = Date.now()) {
+  if (!voucher) return 'Kode voucher tidak ditemukan.';
+  if (!voucher.active) return 'Kode voucher sedang nonaktif.';
+  if (voucher.starts_at && Date.parse(voucher.starts_at) > now) return 'Kode voucher belum memasuki masa berlaku.';
+  if (voucher.expires_at && Date.parse(voucher.expires_at) <= now) return 'Kode voucher sudah kedaluwarsa.';
+  if (voucher.max_uses !== null && Number(voucher.uses) >= Number(voucher.max_uses)) return 'Kuota kode voucher sudah habis.';
+  return '';
+}
+
+function validateVoucherInput(body) {
+  const code = String(body?.code || '').trim().toUpperCase();
+  const discountType = String(body?.discountType || '');
+  const discountValue = Number(body?.discountValue);
+  const maxUses = body?.maxUses === '' || body?.maxUses == null ? null : Number(body.maxUses);
+  const startsAt = body?.startsAt || null;
+  const expiresAt = body?.expiresAt || null;
+
+  if (!/^[A-Z0-9_-]{3,30}$/.test(code)) {
+    return { error: 'Kode voucher harus 3–30 karakter dan hanya boleh berisi huruf, angka, tanda hubung, atau garis bawah.' };
+  }
+  if (!['percent', 'fixed'].includes(discountType)) return { error: 'Pilih jenis diskon yang valid.' };
+  if (!Number.isSafeInteger(discountValue) || discountValue < 1
+    || (discountType === 'percent' && discountValue > 100)) {
+    return { error: discountType === 'percent'
+      ? 'Diskon persentase harus berupa bilangan bulat antara 1 dan 100.'
+      : 'Potongan Rupiah harus berupa bilangan bulat lebih besar dari 0.' };
+  }
+  if (maxUses !== null && (!Number.isSafeInteger(maxUses) || maxUses < 1)) {
+    return { error: 'Batas pemakaian harus berupa bilangan bulat minimal 1, atau dikosongkan tanpa batas.' };
+  }
+  if ((startsAt && Number.isNaN(Date.parse(startsAt))) || (expiresAt && Number.isNaN(Date.parse(expiresAt)))) {
+    return { error: 'Tanggal mulai atau berakhir tidak valid.' };
+  }
+  if (startsAt && expiresAt && Date.parse(expiresAt) <= Date.parse(startsAt)) {
+    return { error: 'Waktu berakhir harus setelah waktu mulai.' };
+  }
+
+  return {
+    voucher: {
+      code,
+      discount_type: discountType,
+      discount_value: discountValue,
+      active: body?.active !== false,
+      starts_at: startsAt,
+      expires_at: expiresAt,
+      max_uses: maxUses
+    }
+  };
+}
+
 function validateGameInput(body, id = body?.id) {
   const gameId = String(id || '').trim().toLowerCase();
   const name = String(body?.name || '').trim();
@@ -597,13 +647,8 @@ app.post('/api/vouchers/validate', asyncRoute(async (req, res) => {
   if (!code || !Number.isSafeInteger(price) || price < 0) return res.status(400).json({ message: 'Kode voucher atau harga tidak valid.' });
   const { data, error } = await supabase.from('vouchers').select('*').eq('code', code).maybeSingle();
   if (error) throw error;
-  if (!data || !data.active) return res.status(400).json({ message: 'Kode voucher tidak valid atau sedang tidak aktif.' });
-  const currentTime = Date.now();
-  if ((data.starts_at && Date.parse(data.starts_at) > currentTime)
-    || (data.expires_at && Date.parse(data.expires_at) <= currentTime)
-    || (data.max_uses !== null && data.uses >= data.max_uses)) {
-    return res.status(400).json({ message: 'Kode voucher belum berlaku, sudah kedaluwarsa, atau kuotanya habis.' });
-  }
+  const unavailableMessage = getVoucherUnavailableMessage(data);
+  if (unavailableMessage) return res.status(400).json({ message: unavailableMessage });
   const discount = data.discount_type === 'percent'
     ? Math.round(price * data.discount_value / 100)
     : Math.min(price, data.discount_value);
@@ -849,37 +894,40 @@ app.delete('/api/admin/payment-methods/:id', adminOnly, asyncRoute(async (req, r
 
 app.post('/api/admin/vouchers', adminOnly, asyncRoute(async (req, res) => {
   if (!dbOrError(res)) return;
-  const code = String(req.body?.code || '').trim().toUpperCase();
-  const discountType = req.body?.discountType;
-  const discountValue = Number(req.body?.discountValue);
-  const maxUses = req.body?.maxUses === '' || req.body?.maxUses == null ? null : Number(req.body.maxUses);
-  const expiresAt = req.body?.expiresAt || null;
-  if (!/^[A-Z0-9_-]{3,30}$/.test(code) || !['percent', 'fixed'].includes(discountType)
-    || !Number.isSafeInteger(discountValue) || discountValue < 1
-    || (discountType === 'percent' && discountValue > 100)
-    || (maxUses !== null && (!Number.isSafeInteger(maxUses) || maxUses < 1))
-    || (expiresAt && Number.isNaN(Date.parse(expiresAt)))) {
-    return res.status(400).json({ message: 'Data voucher tidak valid.' });
-  }
-  const { data, error } = await supabase.from('vouchers').insert({
-    code,
-    discount_type: discountType,
-    discount_value: discountValue,
-    active: req.body?.active !== false,
-    starts_at: req.body?.startsAt || null,
-    expires_at: expiresAt,
-    max_uses: maxUses
-  }).select('*').single();
+  const { voucher, error: validationError } = validateVoucherInput(req.body);
+  if (validationError) return res.status(400).json({ message: validationError });
+  const { data, error } = await supabase.from('vouchers').insert(voucher).select('*').single();
   if (error?.code === '23505') return res.status(409).json({ message: 'Kode voucher sudah digunakan.' });
   if (error) throw error;
   res.status(201).json({ item: data, message: 'Voucher berhasil dibuat.' });
 }));
 
+app.put('/api/admin/vouchers/:code', adminOnly, asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  const { voucher, error: validationError } = validateVoucherInput(req.body);
+  if (validationError) return res.status(400).json({ message: validationError });
+  const currentCode = String(req.params.code || '').trim().toUpperCase();
+  const { data: current, error: currentError } = await supabase.from('vouchers')
+    .select('uses').eq('code', currentCode).maybeSingle();
+  if (currentError) throw currentError;
+  if (!current) return res.status(404).json({ message: 'Voucher tidak ditemukan.' });
+  if (voucher.max_uses !== null && voucher.max_uses < Number(current.uses || 0)) {
+    return res.status(400).json({ message: `Batas pemakaian tidak boleh kurang dari jumlah yang sudah digunakan (${current.uses}).` });
+  }
+  const { data, error } = await supabase.from('vouchers').update(voucher)
+    .eq('code', currentCode).select('*').maybeSingle();
+  if (error?.code === '23505') return res.status(409).json({ message: 'Kode voucher baru sudah digunakan.' });
+  if (error) throw error;
+  if (!data) return res.status(404).json({ message: 'Voucher tidak ditemukan.' });
+  res.json({ item: data, message: 'Voucher berhasil diperbarui.' });
+}));
+
 app.delete('/api/admin/vouchers/:code', adminOnly, asyncRoute(async (req, res) => {
   if (!dbOrError(res)) return;
   const code = String(req.params.code || '').toUpperCase();
-  const { error } = await supabase.from('vouchers').delete().eq('code', code);
+  const { data, error } = await supabase.from('vouchers').delete().eq('code', code).select('code').maybeSingle();
   if (error) throw error;
+  if (!data) return res.status(404).json({ message: 'Voucher tidak ditemukan.' });
   res.json({ message: 'Voucher berhasil dihapus.' });
 }));
 
@@ -915,13 +963,8 @@ app.post('/api/orders', async (req, res) => {
     if (voucher) {
       const { data, error: voucherError } = await supabase.from('vouchers').select('*').eq('code', voucher).maybeSingle();
       if (voucherError) throw voucherError;
-      if (!data || !data.active) return res.status(400).json({ message: 'Kode voucher tidak valid atau sedang tidak aktif.' });
-      const currentTime = Date.now();
-      if ((data.starts_at && Date.parse(data.starts_at) > currentTime)
-        || (data.expires_at && Date.parse(data.expires_at) <= currentTime)
-        || (data.max_uses !== null && data.uses >= data.max_uses)) {
-        return res.status(400).json({ message: 'Kode voucher belum berlaku, sudah kedaluwarsa, atau kuotanya habis.' });
-      }
+      const unavailableMessage = getVoucherUnavailableMessage(data);
+      if (unavailableMessage) return res.status(400).json({ message: unavailableMessage });
       voucherRow = data;
       discount = data.discount_type === 'percent'
         ? Math.round(Number(variant.price) * data.discount_value / 100)

@@ -210,7 +210,8 @@ async function loadGames() {
     renderCatalog();
     populateCategoryFilter();
     const count = document.getElementById('catalog-count');
-    if (count) count.textContent = `${state.games.length} game tersedia`;
+    const variantCount = state.games.reduce((total, game) => total + (game.variants || []).length, 0);
+    if (count) count.textContent = `${variantCount} nominal tersedia`;
     if (state.games.length > 0 && !state.selectedGame) {
       selectGame(state.games[0]);
     }
@@ -277,7 +278,6 @@ function renderPopularGames() {
           <h3>${escapeHtml(game.name)}</h3>
           <span class="card-tag">${escapeHtml(game.category)}</span>
         </div>
-        ${paymentDetails}
         <div class="price-row">
           <span>Mulai dari</span>
           <strong>${formatRupiah(firstVariant.price)}</strong>
@@ -300,65 +300,68 @@ function renderCatalog() {
   const categoryFilter = document.getElementById('category-filter')?.value || 'all';
   const sortFilter = document.getElementById('sort-filter')?.value || 'featured';
 
-  let games = [...state.games];
+  let products = state.games.flatMap((game) => (game.variants || []).map((variant) => ({ game, variant })));
 
   if (searchValue) {
-    games = games.filter((game) => `${game.name} ${game.description}`.toLowerCase().includes(searchValue));
+    products = products.filter(({ game, variant }) =>
+      `${game.name} ${game.description} ${variant.label}`.toLowerCase().includes(searchValue)
+    );
   }
-
-  if (categoryFilter !== 'all') {
-    games = games.filter((game) => game.category === categoryFilter);
-  }
+  if (categoryFilter !== 'all') products = products.filter(({ game }) => game.category === categoryFilter);
 
   if (sortFilter === 'price-low') {
-    games = games.sort((a, b) => Math.min(...a.variants.map((item) => Number(item.price))) - Math.min(...b.variants.map((item) => Number(item.price))));
+    products.sort((a, b) => Number(a.variant.price) - Number(b.variant.price));
   } else if (sortFilter === 'price-high') {
-    games = games.sort((a, b) => Math.max(...b.variants.map((item) => Number(item.price))) - Math.max(...a.variants.map((item) => Number(item.price))));
+    products.sort((a, b) => Number(b.variant.price) - Number(a.variant.price));
   } else if (sortFilter === 'name') {
-    games = games.sort((a, b) => a.name.localeCompare(b.name));
+    products.sort((a, b) => a.game.name.localeCompare(b.game.name) || a.variant.label.localeCompare(b.variant.label));
+  } else {
+    products.sort((a, b) => Number(Boolean(b.game.featured)) - Number(Boolean(a.game.featured)));
   }
 
-  if (!games.length) {
+  if (!products.length) {
     container.innerHTML = '<div class="empty-state">Produk yang Anda cari belum tersedia.</div>';
     return;
   }
 
-  container.innerHTML = games.map((game) => {
-    const firstVariant = game.variants[0] || { price: 0, label: 'Diamond' };
+  container.innerHTML = products.map(({ game, variant }) => {
     return `
       <article class="product-card">
-        <img src="${escapeHtml(game.banner || game.logo)}" alt="${escapeHtml(game.name)}" loading="lazy" />
+        <div class="product-card-image">
+          <img src="${escapeHtml(game.banner || game.logo)}" alt="${escapeHtml(game.name)}" loading="lazy" />
+          <span class="product-game-label">${escapeHtml(game.name)}</span>
+        </div>
         <div class="product-meta">
-          <h3>${escapeHtml(game.name)}</h3>
-          <span class="card-tag">${escapeHtml(game.category)}</span>
+          <h3>${escapeHtml(variant.label)}</h3>
+          ${variant.bonus ? `<span class="product-bonus">${escapeHtml(variant.bonus)}</span>` : ''}
         </div>
         <div class="price-row">
-          <span>Mulai dari</span>
-          <span class="product-price">${formatRupiah(firstVariant.price)}</span>
+          <span>${escapeHtml(game.category)}</span>
+          <span class="product-price">${formatRupiah(variant.price)}</span>
         </div>
-        <button class="button button-primary" type="button" data-game-id="${escapeHtml(game.id)}">Beli Sekarang <span aria-hidden="true">→</span></button>
+        <button class="button button-primary" type="button" data-game-id="${escapeHtml(game.id)}" data-variant-key="${escapeHtml(variant.key)}"><span aria-hidden="true">🛒</span> Beli Sekarang</button>
       </article>
     `;
   }).join('');
 
   container.querySelectorAll('[data-game-id]').forEach((button) => {
-    button.addEventListener('click', () => selectGameById(button.dataset.gameId));
+    button.addEventListener('click', () => selectGameById(button.dataset.gameId, button.dataset.variantKey));
   });
 }
 
-async function selectGameById(gameId) {
+async function selectGameById(gameId, variantKey) {
   try {
     const game = await fetchJson(`${API_BASE}/games/${encodeURIComponent(gameId)}`);
-    selectGame(game);
+    selectGame(game, variantKey);
     document.getElementById('selected-product')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (error) {
     console.error('Failed to select game:', error);
   }
 }
 
-function selectGame(game) {
+function selectGame(game, variantKey) {
   state.selectedGame = game;
-  state.selectedVariant = game.variants[0] || null;
+  state.selectedVariant = game.variants.find((variant) => variant.key === variantKey) || game.variants[0] || null;
   renderSelectedProduct();
   updateCheckoutSummary();
 }
@@ -438,11 +441,17 @@ async function updateCheckoutSummary() {
     feedback.hidden = true;
     feedback.classList.remove('success');
   }
-  if (voucherCode.trim()) {
+  const normalizedVoucherCode = voucherCode.trim().toUpperCase();
+  if (normalizedVoucherCode && !/^[A-Z0-9_-]{3,30}$/.test(normalizedVoucherCode)) {
+    if (feedback) {
+      feedback.textContent = 'Kode voucher harus 3–30 karakter (huruf, angka, - atau _).';
+      feedback.hidden = false;
+    }
+  } else if (normalizedVoucherCode) {
     try {
       const result = await fetchJson(`${API_BASE}/vouchers/validate`, {
         method: 'POST',
-        body: JSON.stringify({ code: voucherCode, price })
+        body: JSON.stringify({ code: normalizedVoucherCode, price })
       });
       if (validationSequence !== voucherValidationSequence) return;
       discount = Number(result.discount || 0);
@@ -885,15 +894,31 @@ async function initAdminPage() {
         <td><strong>${escapeHtml(voucher.code)}</strong></td>
         <td>${voucher.discount_type === 'percent' ? `${voucher.discount_value}%` : formatRupiah(voucher.discount_value)}</td>
         <td>${voucher.uses}${voucher.max_uses ? ` / ${voucher.max_uses}` : ' / ∞'}</td>
-        <td>${voucher.expires_at ? new Date(voucher.expires_at).toLocaleString('id-ID') : 'Tanpa batas'}</td>
+        <td>${voucher.starts_at ? `Mulai ${new Date(voucher.starts_at).toLocaleString('id-ID')}<br />` : ''}${voucher.expires_at ? `Sampai ${new Date(voucher.expires_at).toLocaleString('id-ID')}` : 'Tanpa batas'}</td>
         <td>${voucher.active ? 'Aktif' : 'Nonaktif'}</td>
-        <td><button class="button button-danger button-small" type="button" data-delete-voucher="${escapeHtml(voucher.code)}">Hapus</button></td>
+        <td><button class="button button-glass button-small" type="button" data-edit-voucher="${escapeHtml(voucher.code)}">Edit</button><button class="button button-danger button-small" type="button" data-delete-voucher="${escapeHtml(voucher.code)}">Hapus</button></td>
       </tr>
     `).join('') : '<tr><td colspan="6"><div class="empty-state">Belum ada voucher.</div></td></tr>';
+    table.querySelectorAll('[data-edit-voucher]').forEach((button) => button.addEventListener('click', () => {
+      const voucher = vouchers.find((item) => item.code === button.dataset.editVoucher);
+      if (!voucher) return;
+      document.getElementById('voucher-original-code').value = voucher.code;
+      document.getElementById('voucher-admin-code').value = voucher.code;
+      document.getElementById('voucher-discount-type').value = voucher.discount_type;
+      document.getElementById('voucher-discount-value').value = voucher.discount_value;
+      document.getElementById('voucher-max-uses').value = voucher.max_uses ?? '';
+      document.getElementById('voucher-starts-at').value = toLocalDateTimeInput(voucher.starts_at);
+      document.getElementById('voucher-expires-at').value = toLocalDateTimeInput(voucher.expires_at);
+      document.getElementById('voucher-active').checked = Boolean(voucher.active);
+      document.getElementById('save-voucher-button').textContent = 'Simpan perubahan';
+      document.getElementById('admin-vouchers').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }));
     table.querySelectorAll('[data-delete-voucher]').forEach((button) => button.addEventListener('click', async () => {
       if (!confirm(`Hapus voucher ${button.dataset.deleteVoucher}?`)) return;
       try {
         await fetchJson(`${API_BASE}/admin/vouchers/${encodeURIComponent(button.dataset.deleteVoucher)}`, { method: 'DELETE' });
+        if (document.getElementById('voucher-original-code').value === button.dataset.deleteVoucher) resetVoucherForm();
+        setFeatureFeedback('voucher-feedback', 'Voucher berhasil dihapus.', true);
         await loadAdminVouchers();
       } catch (error) {
         setFeatureFeedback('voucher-feedback', getErrorMessage(error, 'Gagal menghapus voucher.'));
@@ -1179,27 +1204,52 @@ async function initAdminPage() {
     }
   });
 
+  const toLocalDateTimeInput = (value) => {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  };
+  const resetVoucherForm = () => {
+    document.getElementById('voucher-form').reset();
+    document.getElementById('voucher-original-code').value = '';
+    document.getElementById('voucher-active').checked = true;
+    document.getElementById('voucher-discount-value').max = '100';
+    document.getElementById('save-voucher-button').textContent = 'Buat voucher';
+  };
+  document.getElementById('reset-voucher-form')?.addEventListener('click', resetVoucherForm);
+  document.getElementById('voucher-discount-type')?.addEventListener('change', (event) => {
+    document.getElementById('voucher-discount-value').max = event.target.value === 'percent' ? '100' : '';
+  });
   document.getElementById('voucher-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
+    const originalCode = document.getElementById('voucher-original-code').value;
+    const start = document.getElementById('voucher-starts-at').value;
     const expiry = document.getElementById('voucher-expires-at').value;
+    const button = document.getElementById('save-voucher-button');
+    button.disabled = true;
     try {
-      await fetchJson(`${API_BASE}/admin/vouchers`, {
-        method: 'POST',
+      const result = await fetchJson(originalCode
+        ? `${API_BASE}/admin/vouchers/${encodeURIComponent(originalCode)}`
+        : `${API_BASE}/admin/vouchers`, {
+        method: originalCode ? 'PUT' : 'POST',
         body: JSON.stringify({
-          code: document.getElementById('voucher-admin-code').value,
+          code: document.getElementById('voucher-admin-code').value.trim().toUpperCase(),
           discountType: document.getElementById('voucher-discount-type').value,
           discountValue: Number(document.getElementById('voucher-discount-value').value),
           maxUses: document.getElementById('voucher-max-uses').value || null,
+          startsAt: start ? new Date(start).toISOString() : null,
           expiresAt: expiry ? new Date(expiry).toISOString() : null,
           active: document.getElementById('voucher-active').checked
         })
       });
-      event.currentTarget.reset();
-      document.getElementById('voucher-active').checked = true;
-      setFeatureFeedback('voucher-feedback', 'Voucher berhasil dibuat.', true);
+      resetVoucherForm();
+      setFeatureFeedback('voucher-feedback', result.message || 'Voucher berhasil disimpan.', true);
       await loadAdminVouchers();
     } catch (error) {
-      setFeatureFeedback('voucher-feedback', getErrorMessage(error, 'Gagal membuat voucher.'));
+      setFeatureFeedback('voucher-feedback', getErrorMessage(error, 'Gagal menyimpan voucher.'));
+    } finally {
+      button.disabled = false;
     }
   });
 
