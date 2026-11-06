@@ -627,9 +627,15 @@ app.get('/api/site-settings', asyncRoute(async (req, res) => {
   if (!dbOrError(res)) return;
   const { data, error } = await supabase.from('site_settings')
     .select('key,value')
-    .in('key', ['hero_banner_url', 'maintenance_mode', 'maintenance_message']);
+    .in('key', ['hero_banner_url', 'brand_logo_url', 'contact_links', 'maintenance_mode', 'maintenance_message']);
   if (error) throw error;
   const items = Object.fromEntries(data.map((item) => [item.key, item.value]));
+  items.contact_links ||= JSON.stringify([
+    { type: 'whatsapp', label: 'WhatsApp', value: '+62 857-8255-4720' },
+    { type: 'email', label: 'Email support', value: 'krisdesign0@gmail.com' },
+    { type: 'instagram', label: 'Instagram', value: 'krisdesignreal23' }
+  ]);
+  items.brand_logo_url ||= '';
   items.maintenance_mode ||= 'off';
   items.maintenance_message ||= '';
   res.json({ items });
@@ -770,6 +776,27 @@ app.get('/api/admin/gallery', adminOnly, asyncRoute(async (req, res) => {
   res.json({ items });
 }));
 
+app.get('/api/admin/contact-messages', adminOnly, asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  const { data, error } = await supabase.from('contact_messages')
+    .select('id,name,email,message,created_at')
+    .order('created_at', { ascending: false })
+    .limit(200);
+  if (error) throw error;
+  res.json({ items: data });
+}));
+
+app.delete('/api/admin/contact-messages/:id', adminOnly, asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  const id = String(req.params.id || '').trim();
+  if (!id || id.length > 100) return res.status(400).json({ message: 'ID pesan tidak valid.' });
+  const { data, error } = await supabase.from('contact_messages')
+    .delete().eq('id', id).select('id').maybeSingle();
+  if (error) throw error;
+  if (!data) return res.status(404).json({ message: 'Pesan tidak ditemukan.' });
+  res.json({ message: 'Pesan berhasil dihapus.' });
+}));
+
 app.post('/api/admin/gallery', adminOnly, imageUpload.single('image'), asyncRoute(async (req, res) => {
   if (!dbOrError(res)) return;
   if (!req.file) return res.status(400).json({ message: 'Pilih gambar JPG, PNG, atau WEBP.' });
@@ -835,16 +862,54 @@ app.patch('/api/admin/site-settings', adminOnly, asyncRoute(async (req, res) => 
   if (!dbOrError(res)) return;
   const rows = [];
   const updated = {};
-  if (Object.hasOwn(req.body || {}, 'heroBannerUrl')) {
-    const heroBannerUrl = String(req.body.heroBannerUrl || '').trim();
-    if (!heroBannerUrl) return res.status(400).json({ message: 'URL gambar banner wajib diisi.' });
+  const addImageSetting = (bodyKey, settingKey, label, responseKey) => {
+    if (!Object.hasOwn(req.body || {}, bodyKey)) return '';
+    const url = String(req.body[bodyKey] || '').trim();
+    if (!url) return `${label} wajib diisi.`;
     try {
-      if (!['http:', 'https:'].includes(new URL(heroBannerUrl).protocol)) throw new Error('invalid protocol');
+      if (!['http:', 'https:'].includes(new URL(url).protocol)) throw new Error('invalid protocol');
     } catch {
-      return res.status(400).json({ message: 'URL banner harus menggunakan HTTP atau HTTPS.' });
+      return `URL ${label.toLowerCase()} harus menggunakan HTTP atau HTTPS.`;
     }
-    rows.push({ key: 'hero_banner_url', value: heroBannerUrl });
-    updated.heroBannerUrl = heroBannerUrl;
+    rows.push({ key: settingKey, value: url });
+    updated[responseKey] = url;
+    return '';
+  };
+  for (const [bodyKey, settingKey, label, responseKey] of [
+    ['heroBannerUrl', 'hero_banner_url', 'URL gambar banner', 'heroBannerUrl'],
+    ['brandLogoUrl', 'brand_logo_url', 'URL logo website', 'brandLogoUrl']
+  ]) {
+    const validationMessage = addImageSetting(bodyKey, settingKey, label, responseKey);
+    if (validationMessage) return res.status(400).json({ message: validationMessage });
+  }
+  if (Object.hasOwn(req.body || {}, 'contactLinks')) {
+    const items = req.body.contactLinks;
+    if (!Array.isArray(items) || items.length > 12) {
+      return res.status(400).json({ message: 'Daftar kontak tidak valid (maksimal 12 kontak).' });
+    }
+    const validTypes = new Set(['whatsapp', 'email', 'instagram']);
+    const normalized = [];
+    for (const item of items) {
+      const type = String(item?.type || '');
+      const label = String(item?.label || '').trim().slice(0, 60);
+      let value = String(item?.value || '').trim().slice(0, 180);
+      if (!validTypes.has(type) || !label || !value) {
+        return res.status(400).json({ message: 'Setiap kontak harus memiliki jenis, label, dan nilai yang valid.' });
+      }
+      if (type === 'whatsapp') {
+        const digits = value.replace(/\D/g, '');
+        if (digits.length < 8 || digits.length > 15) return res.status(400).json({ message: `Nomor WhatsApp "${label}" tidak valid.` });
+        value = digits;
+      } else if (type === 'email') {
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return res.status(400).json({ message: `Alamat email "${label}" tidak valid.` });
+      } else {
+        value = value.replace(/^@+/, '');
+        if (!/^[A-Za-z0-9._]{1,30}$/.test(value)) return res.status(400).json({ message: `Username Instagram "${label}" tidak valid.` });
+      }
+      normalized.push({ type, label, value });
+    }
+    rows.push({ key: 'contact_links', value: JSON.stringify(normalized) });
+    updated.contactLinks = normalized;
   }
   if (Object.hasOwn(req.body || {}, 'maintenanceMode')) {
     const maintenanceMode = String(req.body.maintenanceMode || '');

@@ -36,6 +36,7 @@
           <a href="#admin-security"><span>⌑</span> Keamanan</a>
           <a href="#admin-categories"><span>▦</span> Kategori</a>
           <a href="#admin-vouchers"><span>%</span> Voucher</a>
+          <a href="#admin-contacts"><span>✉</span> Kontak &amp; pesan</a>
           <a href="#admin-content"><span>✎</span> Teks website</a>
         </nav>
         <span class="sidebar-label">LAINNYA</span>
@@ -132,10 +133,23 @@
               </div>
             </form>
             <div class="admin-subsection">
+              <h3>Identitas website</h3>
+              <form id="site-identity-form" class="gallery-upload-row">
+                <label for="brand-logo-url">URL logo website</label>
+                <input id="brand-logo-url" class="input" type="url" placeholder="Pilih dari galeri atau tempel URL" />
+                <label for="brand-logo-file">Upload logo</label>
+                <input id="brand-logo-file" class="input" type="file" accept="image/jpeg,image/png,image/webp" />
+                <button class="button button-primary" type="submit">Simpan logo</button>
+              </form>
+              <p id="brand-logo-feedback" class="form-feedback" role="status" hidden></p>
+            </div>
+            <div class="admin-subsection">
               <h3>Banner utama website</h3>
               <form id="hero-banner-form" class="gallery-upload-row">
                 <label for="hero-banner-url">URL gambar banner</label>
                 <input id="hero-banner-url" class="input" type="url" placeholder="Pilih gambar dari galeri atau tempel URL" />
+                <label for="hero-banner-file">Upload banner</label>
+                <input id="hero-banner-file" class="input" type="file" accept="image/jpeg,image/png,image/webp" />
                 <button class="button button-primary" type="submit">Simpan banner utama</button>
               </form>
               <p id="hero-banner-feedback" class="form-feedback" role="status" hidden></p>
@@ -214,6 +228,22 @@
               <div class="admin-form-actions admin-form-wide"><button class="button button-primary" id="save-voucher-button" type="submit">Buat voucher</button><button class="button button-glass" id="reset-voucher-form" type="button">Voucher baru / reset</button><p id="voucher-feedback" class="form-feedback" role="status" hidden></p></div>
             </form>
             <div class="table-wrap"><table class="data-table"><thead><tr><th>Kode</th><th>Diskon</th><th>Pemakaian</th><th>Masa berlaku</th><th>Status</th><th>Aksi</th></tr></thead><tbody id="admin-voucher-table"></tbody></table></div>
+          </section>
+
+          <section class="admin-panel admin-management-panel" id="admin-contacts">
+            <div class="admin-panel-heading"><div><span class="section-kicker">HUBUNGI TOKO</span><h2>Kontak &amp; pesan pengunjung</h2><p>Atur tautan WhatsApp, email, dan Instagram yang tampil di toko serta kelola pesan dari formulir kontak.</p></div></div>
+            <form id="contact-links-form" class="admin-form-grid">
+              <div class="admin-form-wide">
+                <div class="variant-editor-heading"><span>Daftar kontak publik</span><button class="button button-glass button-small" id="add-contact-link" type="button">+ Tambah kontak</button></div>
+                <div id="admin-contact-links" class="admin-contact-links"></div>
+              </div>
+              <div class="admin-form-actions admin-form-wide"><button class="button button-primary" id="save-contact-links" type="submit">Simpan kontak</button><p id="contact-links-feedback" class="form-feedback" role="status" hidden></p></div>
+            </form>
+            <div class="admin-subsection">
+              <div class="admin-panel-heading"><div><h3>Pesan kritik dan saran</h3><p>Pesan terbaru ditampilkan terlebih dahulu.</p></div><button class="button button-glass button-small" id="refresh-contact-messages" type="button">Perbarui pesan</button></div>
+              <p id="contact-messages-feedback" class="form-feedback" role="status" hidden></p>
+              <div class="table-wrap"><table class="data-table"><thead><tr><th>Waktu</th><th>Nama</th><th>Email</th><th>Pesan</th><th>Aksi</th></tr></thead><tbody id="admin-contact-message-table"><tr><td colspan="5"><div class="empty-state">Masuk untuk memuat pesan.</div></td></tr></tbody></table></div>
+            </div>
           </section>
 
           <section class="admin-panel admin-management-panel" id="admin-content">

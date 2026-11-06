@@ -125,6 +125,18 @@ function applySiteSettings(settings) {
   if (heroBanner && state.siteSettings.hero_banner_url) {
     heroBanner.src = state.siteSettings.hero_banner_url;
   }
+  document.querySelectorAll('.brand-mark').forEach((mark) => {
+    mark.innerHTML = state.siteSettings.brand_logo_url
+      ? `<img class="brand-logo-image" src="${escapeHtml(state.siteSettings.brand_logo_url)}" alt="Logo KRIS DIAMOND SHOP" />`
+      : 'K';
+  });
+  let contacts = [];
+  try {
+    contacts = JSON.parse(state.siteSettings.contact_links || '[]');
+  } catch (error) {
+    console.error('Contact links setting is invalid:', error);
+  }
+  renderPublicContacts(Array.isArray(contacts) ? contacts : []);
   const transactionMaintenance = state.siteSettings.maintenance_mode === 'transactions';
   const maintenanceBanner = document.getElementById('transaction-maintenance-banner');
   if (maintenanceBanner) {
@@ -137,6 +149,41 @@ function applySiteSettings(settings) {
     checkoutForm.querySelectorAll('input,select,textarea,button').forEach((control) => {
       control.disabled = transactionMaintenance;
     });
+  }
+}
+
+function getContactHref(contact) {
+  const value = String(contact.value || '').trim();
+  if (contact.type === 'whatsapp') return `https://wa.me/${value.replace(/\D/g, '')}`;
+  if (contact.type === 'email') return `mailto:${value}`;
+  if (contact.type === 'instagram') return `https://instagram.com/${encodeURIComponent(value.replace(/^@+/, ''))}`;
+  return '#';
+}
+
+function getContactIcon(type) {
+  return ({ whatsapp: '◉', email: '✉', instagram: '◎' })[type] || '↗';
+}
+
+function getContactDisplayValue(contact) {
+  if (contact.type === 'whatsapp') return `+${String(contact.value || '').replace(/\D/g, '')}`;
+  if (contact.type === 'instagram') return `@${String(contact.value || '').replace(/^@+/, '')}`;
+  return String(contact.value || '');
+}
+
+function renderPublicContacts(contacts) {
+  const contactContainer = document.getElementById('public-contact-links');
+  if (contactContainer) {
+    contactContainer.innerHTML = contacts.map((contact) => `
+      <a class="contact-channel" href="${escapeHtml(getContactHref(contact))}" ${contact.type === 'email' ? '' : 'target="_blank" rel="noopener noreferrer"'}>
+        <span>${getContactIcon(contact.type)}</span><div><small>${escapeHtml(contact.label)}</small><strong>${escapeHtml(getContactDisplayValue(contact))}</strong></div>
+      </a>
+    `).join('') || '<p class="muted-copy">Informasi kontak belum tersedia.</p>';
+  }
+  const footerContacts = document.getElementById('footer-contact-links');
+  if (footerContacts) {
+    footerContacts.innerHTML = contacts.map((contact) => `
+      <a href="${escapeHtml(getContactHref(contact))}" ${contact.type === 'email' ? '' : 'target="_blank" rel="noopener noreferrer"'}>${escapeHtml(contact.label)} ↗</a>
+    `).join('');
   }
 }
 
@@ -956,7 +1003,7 @@ async function initAdminPage() {
       <article class="gallery-image-card">
         <img src="${escapeHtml(image.url)}" alt="Gambar ${escapeHtml(image.name)}" loading="lazy" />
         <small>${escapeHtml(image.name)}</small>
-        <div><button class="button button-glass button-small" type="button" data-use-logo="${escapeHtml(image.url)}">Jadikan gambar kartu</button><button class="button button-glass button-small" type="button" data-use-banner="${escapeHtml(image.url)}">Jadikan banner produk</button><button class="button button-glass button-small" type="button" data-use-payment="${escapeHtml(image.url)}">Jadikan QR pembayaran</button><button class="button button-glass button-small" type="button" data-use-hero="${escapeHtml(image.url)}">Jadikan banner utama</button></div>
+        <div><button class="button button-glass button-small" type="button" data-use-logo="${escapeHtml(image.url)}">Jadikan gambar kartu</button><button class="button button-glass button-small" type="button" data-use-banner="${escapeHtml(image.url)}">Jadikan banner produk</button><button class="button button-glass button-small" type="button" data-use-payment="${escapeHtml(image.url)}">Jadikan QR pembayaran</button><button class="button button-glass button-small" type="button" data-use-hero="${escapeHtml(image.url)}">Jadikan banner utama</button><button class="button button-glass button-small" type="button" data-use-site-logo="${escapeHtml(image.url)}">Jadikan logo website</button></div>
         <button class="button button-danger button-small" type="button" data-delete-image="${escapeHtml(image.name)}">Hapus gambar</button>
       </article>
     `).join('') : '<div class="empty-state">Galeri masih kosong. Upload gambar untuk mulai menggunakannya.</div>';
@@ -973,6 +1020,10 @@ async function initAdminPage() {
     container.querySelectorAll('[data-use-hero]').forEach((button) => button.addEventListener('click', () => {
       document.getElementById('hero-banner-url').value = button.dataset.useHero;
       document.getElementById('hero-banner-url').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }));
+    container.querySelectorAll('[data-use-site-logo]').forEach((button) => button.addEventListener('click', () => {
+      document.getElementById('brand-logo-url').value = button.dataset.useSiteLogo;
+      document.getElementById('brand-logo-url').scrollIntoView({ behavior: 'smooth', block: 'center' });
     }));
     container.querySelectorAll('[data-delete-image]').forEach((button) => button.addEventListener('click', async () => {
       if (!confirm(`Hapus gambar ${button.dataset.deleteImage} dari galeri?`)) return;
@@ -1123,8 +1174,17 @@ async function initAdminPage() {
     ]);
     state.siteContent = content.items || {};
     applySiteSettings(settings.items || {});
+    const brandLogoUrl = document.getElementById('brand-logo-url');
+    if (brandLogoUrl) brandLogoUrl.value = state.siteSettings.brand_logo_url || '';
     const heroBannerUrl = document.getElementById('hero-banner-url');
     if (heroBannerUrl) heroBannerUrl.value = state.siteSettings.hero_banner_url || '';
+    let contacts = [];
+    try {
+      contacts = JSON.parse(state.siteSettings.contact_links || '[]');
+    } catch (error) {
+      console.error('Contact links setting is invalid:', error);
+    }
+    renderAdminContactLinks(Array.isArray(contacts) ? contacts : []);
     const maintenanceMode = document.getElementById('maintenance-mode');
     const maintenanceMessage = document.getElementById('maintenance-message');
     if (maintenanceMode) maintenanceMode.value = state.siteSettings.maintenance_mode || 'off';
@@ -1136,9 +1196,60 @@ async function initAdminPage() {
     window.setTimeout(scanSiteText, 900);
   };
 
+  const renderAdminContactLinks = (contacts) => {
+    const container = document.getElementById('admin-contact-links');
+    if (!container) return;
+    container.innerHTML = contacts.map((contact) => `
+      <div class="admin-contact-row">
+        <label>Jenis<select class="select" data-contact-type>
+          <option value="whatsapp" ${contact.type === 'whatsapp' ? 'selected' : ''}>WhatsApp</option>
+          <option value="email" ${contact.type === 'email' ? 'selected' : ''}>Email</option>
+          <option value="instagram" ${contact.type === 'instagram' ? 'selected' : ''}>Instagram</option>
+        </select></label>
+        <label>Nama tampilan<input class="input" data-contact-label maxlength="60" required value="${escapeHtml(contact.label || '')}" placeholder="Contoh: WhatsApp toko" /></label>
+        <label>Nomor / alamat / username<input class="input" data-contact-value maxlength="180" required value="${escapeHtml(contact.type === 'whatsapp' ? `+${String(contact.value || '').replace(/\D/g, '')}` : contact.value || '')}" placeholder="${contact.type === 'whatsapp' ? '+6281234567890' : contact.type === 'email' ? 'email@contoh.com' : 'username'}" /></label>
+        <button class="button button-danger button-small" type="button" data-remove-contact aria-label="Hapus kontak">Hapus</button>
+      </div>
+    `).join('') || '<div class="empty-state">Belum ada kontak. Tambahkan WhatsApp, email, atau Instagram.</div>';
+  };
+
+  const collectAdminContactLinks = () => [...document.querySelectorAll('#admin-contact-links .admin-contact-row')].map((row) => ({
+    type: row.querySelector('[data-contact-type]').value,
+    label: row.querySelector('[data-contact-label]').value.trim(),
+    value: row.querySelector('[data-contact-value]').value.trim()
+  }));
+
+  const loadAdminContactMessages = async () => {
+    const table = document.getElementById('admin-contact-message-table');
+    if (!table) return;
+    const result = await fetchJson(`${API_BASE}/admin/contact-messages`);
+    const items = result.items || [];
+    table.innerHTML = items.length ? items.map((item) => `
+      <tr>
+        <td>${new Date(item.created_at).toLocaleString('id-ID')}</td>
+        <td><strong>${escapeHtml(item.name)}</strong></td>
+        <td><a href="mailto:${escapeHtml(item.email)}">${escapeHtml(item.email)}</a></td>
+        <td class="contact-message-cell">${escapeHtml(item.message)}</td>
+        <td><button class="button button-danger button-small" type="button" data-delete-contact-message="${escapeHtml(item.id)}">Hapus</button></td>
+      </tr>
+    `).join('') : '<tr><td colspan="5"><div class="empty-state">Belum ada pesan kritik atau saran.</div></td></tr>';
+    table.querySelectorAll('[data-delete-contact-message]').forEach((button) => button.addEventListener('click', async () => {
+      if (!confirm('Hapus pesan ini secara permanen?')) return;
+      button.disabled = true;
+      try {
+        await fetchJson(`${API_BASE}/admin/contact-messages/${encodeURIComponent(button.dataset.deleteContactMessage)}`, { method: 'DELETE' });
+        setFeatureFeedback('contact-messages-feedback', 'Pesan berhasil dihapus.', true);
+        await loadAdminContactMessages();
+      } catch (error) {
+        setFeatureFeedback('contact-messages-feedback', getErrorMessage(error, 'Gagal menghapus pesan.'));
+        button.disabled = false;
+      }
+    }));
+  };
+
   const loadAdminFeatures = async () => {
-    const loaders = [loadAdminProducts, loadAdminCategories, loadAdminGallery, loadAdminVouchers, loadAdminSiteContent, loadAdminPaymentMethods];
-    const feedbackIds = ['product-feedback', 'category-feedback', 'gallery-feedback', 'voucher-feedback', 'site-content-feedback', 'payment-method-feedback'];
+    const loaders = [loadAdminProducts, loadAdminCategories, loadAdminGallery, loadAdminVouchers, loadAdminSiteContent, loadAdminPaymentMethods, loadAdminContactMessages];
+    const feedbackIds = ['product-feedback', 'category-feedback', 'gallery-feedback', 'voucher-feedback', 'site-content-feedback', 'payment-method-feedback', 'contact-messages-feedback'];
     await Promise.all(loaders.map(async (loader, index) => {
       try {
         await loader();
@@ -1318,14 +1429,95 @@ async function initAdminPage() {
 
   document.getElementById('hero-banner-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
+    const button = event.currentTarget.querySelector('button[type="submit"]');
+    button.disabled = true;
     try {
+      let heroBannerUrl = document.getElementById('hero-banner-url').value.trim();
+      const file = document.getElementById('hero-banner-file').files[0];
+      if (file) heroBannerUrl = await uploadImageFile(file);
       const result = await fetchJson(`${API_BASE}/admin/site-settings`, {
         method: 'PATCH',
-        body: JSON.stringify({ heroBannerUrl: document.getElementById('hero-banner-url').value.trim() })
+        body: JSON.stringify({ heroBannerUrl })
       });
       setFeatureFeedback('hero-banner-feedback', result.message, true);
+      state.siteSettings.hero_banner_url = heroBannerUrl;
+      applySiteSettings(state.siteSettings);
+      event.currentTarget.reset();
+      document.getElementById('hero-banner-url').value = heroBannerUrl;
     } catch (error) {
       setFeatureFeedback('hero-banner-feedback', getErrorMessage(error, 'Gagal memperbarui banner utama.'));
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  document.getElementById('site-identity-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const button = event.currentTarget.querySelector('button[type="submit"]');
+    button.disabled = true;
+    try {
+      let brandLogoUrl = document.getElementById('brand-logo-url').value.trim();
+      const file = document.getElementById('brand-logo-file').files[0];
+      if (file) brandLogoUrl = await uploadImageFile(file);
+      const result = await fetchJson(`${API_BASE}/admin/site-settings`, {
+        method: 'PATCH',
+        body: JSON.stringify({ brandLogoUrl })
+      });
+      setFeatureFeedback('brand-logo-feedback', result.message, true);
+      state.siteSettings.brand_logo_url = brandLogoUrl;
+      applySiteSettings(state.siteSettings);
+      event.currentTarget.reset();
+      document.getElementById('brand-logo-url').value = brandLogoUrl;
+    } catch (error) {
+      setFeatureFeedback('brand-logo-feedback', getErrorMessage(error, 'Gagal memperbarui logo website.'));
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  document.getElementById('add-contact-link')?.addEventListener('click', () => {
+    const contacts = collectAdminContactLinks();
+    contacts.push({ type: 'whatsapp', label: '', value: '' });
+    renderAdminContactLinks(contacts);
+    document.querySelector('#admin-contact-links .admin-contact-row:last-child [data-contact-label]')?.focus();
+  });
+  document.getElementById('admin-contact-links')?.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-remove-contact]');
+    if (!button) return;
+    button.closest('.admin-contact-row').remove();
+    if (!document.querySelector('#admin-contact-links .admin-contact-row')) {
+      document.getElementById('admin-contact-links').innerHTML = '<div class="empty-state">Belum ada kontak. Tambahkan WhatsApp, email, atau Instagram.</div>';
+    }
+  });
+  document.getElementById('contact-links-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const button = document.getElementById('save-contact-links');
+    button.disabled = true;
+    try {
+      const contactLinks = collectAdminContactLinks();
+      const result = await fetchJson(`${API_BASE}/admin/site-settings`, {
+        method: 'PATCH',
+        body: JSON.stringify({ contactLinks })
+      });
+      state.siteSettings.contact_links = JSON.stringify(result.item.contactLinks);
+      renderPublicContacts(result.item.contactLinks);
+      setFeatureFeedback('contact-links-feedback', result.message, true);
+    } catch (error) {
+      setFeatureFeedback('contact-links-feedback', getErrorMessage(error, 'Gagal menyimpan kontak.'));
+    } finally {
+      button.disabled = false;
+    }
+  });
+  document.getElementById('refresh-contact-messages')?.addEventListener('click', async () => {
+    const button = document.getElementById('refresh-contact-messages');
+    button.disabled = true;
+    try {
+      await loadAdminContactMessages();
+      setFeatureFeedback('contact-messages-feedback', 'Daftar pesan berhasil diperbarui.', true);
+    } catch (error) {
+      setFeatureFeedback('contact-messages-feedback', getErrorMessage(error, 'Gagal memuat pesan.'));
+    } finally {
+      button.disabled = false;
     }
   });
 
