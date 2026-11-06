@@ -906,6 +906,7 @@ async function initAdminPage() {
       document.getElementById('voucher-admin-code').value = voucher.code;
       document.getElementById('voucher-discount-type').value = voucher.discount_type;
       document.getElementById('voucher-discount-value').value = voucher.discount_value;
+      document.getElementById('voucher-discount-value').max = voucher.discount_type === 'percent' ? '100' : '';
       document.getElementById('voucher-max-uses').value = voucher.max_uses ?? '';
       document.getElementById('voucher-starts-at').value = toLocalDateTimeInput(voucher.starts_at);
       document.getElementById('voucher-expires-at').value = toLocalDateTimeInput(voucher.expires_at);
