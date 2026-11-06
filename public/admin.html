@@ -154,18 +154,18 @@
           </section>
 
           <section class="admin-panel admin-management-panel" id="admin-payments">
-            <div class="admin-panel-heading"><div><span class="section-kicker">CHECKOUT</span><h2>Metode pembayaran</h2><p>Tambah, ubah, aktifkan, atau hapus metode. QRIS dapat memakai gambar dari galeri atau diunggah langsung.</p></div></div>
+            <div class="admin-panel-heading"><div><span class="section-kicker">CHECKOUT</span><h2>Metode pembayaran</h2><p>Masukkan nomor e-wallet atau detail rekening untuk ditampilkan kepada pelanggan. Gambar bersifat opsional dan umumnya hanya diperlukan untuk QRIS.</p></div></div>
             <form id="payment-method-form" class="admin-form-grid">
               <input id="payment-method-original-id" type="hidden" />
               <label>Nama metode<input id="payment-method-name" class="input" required maxlength="80" placeholder="Contoh: QRIS" /></label>
               <label>Urutan tampil<input id="payment-method-order" class="input" type="number" min="0" value="0" /></label>
-              <label class="admin-form-wide">Instruksi pembayaran<textarea id="payment-method-instructions" class="textarea" rows="3" maxlength="1000" placeholder="Instruksi pembayaran untuk pelanggan"></textarea></label>
-              <label class="admin-form-wide">URL gambar QR / payment<input id="payment-method-image" class="input" type="url" placeholder="Pilih dari galeri atau unggah file di bawah" /></label>
-              <label class="admin-form-wide">Upload gambar dari perangkat<input id="payment-method-image-file" class="input" type="file" accept="image/jpeg,image/png,image/webp" /></label>
+              <label class="admin-form-wide">Nomor tujuan / detail pembayaran<textarea id="payment-method-instructions" class="textarea" rows="3" maxlength="1000" placeholder="DANA/OVO/GoPay: nomor akun dan nama pemilik&#10;Transfer bank: nama bank, nomor rekening, dan nama pemilik"></textarea><small>Contoh: Nomor DANA: 081234567890 · Atas nama: Kris. Informasi ini tampil di halaman checkout.</small></label>
+              <label class="admin-form-wide">URL gambar QR (opsional, biasanya untuk QRIS)<input id="payment-method-image" class="input" type="url" placeholder="Kosongkan untuk DANA, OVO, GoPay, atau transfer bank" /></label>
+              <label class="admin-form-wide">Upload gambar QR (opsional)<input id="payment-method-image-file" class="input" type="file" accept="image/jpeg,image/png,image/webp" /><small>Kosongkan jika metode cukup menggunakan nomor akun atau rekening.</small></label>
               <label class="admin-check"><input id="payment-method-active" type="checkbox" checked /> Aktif di halaman checkout</label>
               <div class="admin-form-actions admin-form-wide"><button class="button button-primary" id="save-payment-method" type="submit">Simpan metode</button><button class="button button-glass" id="reset-payment-method" type="button">Metode baru / reset</button><p id="payment-method-feedback" class="form-feedback" role="status" hidden></p></div>
             </form>
-            <div class="table-wrap"><table class="data-table"><thead><tr><th>Metode</th><th>Instruksi</th><th>Gambar</th><th>Status</th><th>Aksi</th></tr></thead><tbody id="admin-payment-method-table"></tbody></table></div>
+            <div class="table-wrap"><table class="data-table"><thead><tr><th>Metode</th><th>Nomor / detail pembayaran</th><th>Gambar QR (opsional)</th><th>Status</th><th>Aksi</th></tr></thead><tbody id="admin-payment-method-table"></tbody></table></div>
           </section>
 
           <section class="admin-panel admin-management-panel" id="admin-security">

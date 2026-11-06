@@ -53,7 +53,7 @@ function renderPaymentMethodPreview() {
   const image = method.image_url
     ? `<img src="${escapeHtml(method.image_url)}" alt="QR ${escapeHtml(method.name)}" loading="lazy" />`
     : '';
-  container.innerHTML = `${image}${method.instructions ? `<p>${escapeHtml(method.instructions)}</p>` : ''}`;
+  container.innerHTML = `${image}${method.instructions ? `<p><strong>Nomor / detail pembayaran:</strong><br />${escapeHtml(method.instructions)}</p>` : ''}`;
   container.hidden = !image && !method.instructions;
 }
 
@@ -536,7 +536,7 @@ async function getOrderResult(orderId, { quiet = false } = {}) {
     ` : '';
     const paymentDetails = order.paymentImageUrl || order.paymentInstructions ? `
       <div class="payment-order-details">
-        <h4>Petunjuk pembayaran · ${escapeHtml(order.paymentMethod)}</h4>
+        <h4>Nomor / detail pembayaran · ${escapeHtml(order.paymentMethod)}</h4>
         ${order.paymentImageUrl ? `<img src="${escapeHtml(order.paymentImageUrl)}" alt="Gambar pembayaran ${escapeHtml(order.paymentMethod)}" loading="lazy" />` : ''}
         ${order.paymentInstructions ? `<p>${escapeHtml(order.paymentInstructions)}</p>` : ''}
       </div>
@@ -909,7 +909,7 @@ async function initAdminPage() {
     table.innerHTML = methods.length ? methods.map((method) => `
       <tr>
         <td><strong>${escapeHtml(method.name)}</strong><br /><small>${escapeHtml(method.id)}</small></td>
-        <td>${escapeHtml(method.instructions || '-')}</td>
+        <td>${escapeHtml(method.instructions || 'Belum diisi')}</td>
         <td>${method.image_url ? `<a href="${escapeHtml(method.image_url)}" target="_blank" rel="noreferrer">Lihat gambar ↗</a>` : '—'}</td>
         <td>${method.active ? 'Aktif' : 'Nonaktif'}</td>
         <td><button class="button button-glass button-small" type="button" data-edit-payment="${escapeHtml(method.id)}">Edit</button><button class="button button-danger button-small" type="button" data-delete-payment="${escapeHtml(method.id)}">Hapus</button></td>
