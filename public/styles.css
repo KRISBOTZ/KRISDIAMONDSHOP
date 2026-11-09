@@ -416,6 +416,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .customer-auth-card label { display: grid; gap: 7px; color: #d5d0e7; font-size: 11px; }
 .customer-auth-close { position: absolute; top: 14px; right: 14px; width: 32px; height: 32px; border: 1px solid var(--line); border-radius: 50%; color: var(--text); background: transparent; cursor: pointer; font-size: 20px; }
 .customer-auth-switch { border: 0; color: var(--purple-light); background: transparent; cursor: pointer; font-size: 11px; }
+.customer-push-box { display: grid; justify-items: start; gap: 7px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.025); }
+.customer-push-box small { color: var(--muted); font-size: 10px; line-height: 1.5; }
 .payment-method-preview, .payment-order-details { display: grid; justify-items: start; gap: 8px; margin-top: 9px; padding: 10px; border: 1px solid rgba(175,160,218,.1); border-radius: 10px; background: rgba(255,255,255,.025); }
 .payment-method-preview img, .payment-order-details img { max-width: min(100%,240px); max-height: 240px; border-radius: 8px; object-fit: contain; }
 .payment-method-preview p, .payment-order-details p { margin: 0; color: #b6b0c6; font-size: 10px; line-height: 1.6; white-space: pre-line; }

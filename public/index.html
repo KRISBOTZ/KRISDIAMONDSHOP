@@ -4,8 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#090817" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>KRIS DIAMOND SHOP | Top Up Game Aman &amp; Instan</title>
     <meta name="description" content="Top up game favorit dengan aman, mudah, dan harga terbaik di KRIS DIAMOND SHOP." />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="preconnect" href="https://images.unsplash.com" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
@@ -166,6 +169,11 @@
                   <div class="summary-row"><span>Biaya admin</span><strong id="summary-admin">Rp 1.500</strong></div>
                   <div class="summary-row"><span>Diskon voucher</span><strong id="summary-discount">Rp 0</strong></div>
                   <div class="summary-row total"><span>Total pembayaran</span><strong id="summary-total">Rp 0</strong></div>
+                </div>
+                <div class="customer-push-box">
+                  <button class="button button-glass button-small" id="customer-push-button" type="button">Aktifkan notifikasi status pesanan</button>
+                  <p id="customer-push-feedback" class="form-feedback" role="status" hidden></p>
+                  <small>Izinkan notifikasi agar status pesanan tetap terkirim meski browser ditutup. Izin ini opsional.</small>
                 </div>
                 <p class="form-footnote"><span>⌑</span> Data kamu digunakan hanya untuk memproses pesanan.</p>
                 <button class="button button-primary button-wide" type="submit">Buat pesanan <span aria-hidden="true">→</span></button>

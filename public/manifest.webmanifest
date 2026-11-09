@@ -1,0 +1,9 @@
+{
+  "name": "KRIS DIAMOND SHOP",
+  "short_name": "KRIS DIAMOND",
+  "description": "Top up game dan pantau status pesanan",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#090817",
+  "theme_color": "#090817"
+}

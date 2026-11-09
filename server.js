@@ -3,6 +3,8 @@ const multer = require('multer');
 const path = require('path');
 const { randomUUID, randomBytes, createHmac, scryptSync, timingSafeEqual } = require('crypto');
 const { createClient } = require('@supabase/supabase-js');
+const firebaseAdmin = require('firebase-admin');
+const webPush = require('web-push');
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -41,6 +43,35 @@ if (!supabaseConfigError && !supabaseKey) {
 const supabase = supabaseConfigError
   ? null
   : createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false } });
+const vapidPublicKey = (process.env.VAPID_PUBLIC_KEY || '').trim();
+const vapidPrivateKey = (process.env.VAPID_PRIVATE_KEY || '').trim();
+let webPushReady = false;
+if (vapidPublicKey && vapidPrivateKey) {
+  try {
+    webPush.setVapidDetails(
+      process.env.VAPID_SUBJECT || 'mailto:admin@krisdiamondshop.vercel.app',
+      vapidPublicKey,
+      vapidPrivateKey
+    );
+    webPushReady = true;
+  } catch (error) {
+    console.error('Web push VAPID configuration error:', error.message);
+  }
+}
+
+let firebaseMessaging = null;
+try {
+  const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON || '';
+  if (serviceAccountJson) {
+    const serviceAccount = JSON.parse(serviceAccountJson);
+    const firebaseApp = firebaseAdmin.apps[0] || firebaseAdmin.initializeApp({
+      credential: firebaseAdmin.credential.cert(serviceAccount)
+    });
+    firebaseMessaging = firebaseAdmin.messaging(firebaseApp);
+  }
+} catch (error) {
+  console.error('Firebase Admin configuration error:', error.message);
+}
 
 const STATUS_FLOW = [
   'Menunggu Pembayaran',
@@ -414,6 +445,115 @@ async function createNotification(userId, orderId, title, message) {
   if (error) throw error;
 }
 
+async function sendCustomerPush(orderId, title, message) {
+  if (!webPushReady) return;
+  const { data: links, error: linksError } = await supabase.from('web_push_order_subscriptions')
+    .select('subscription_id').eq('order_id', orderId);
+  if (linksError) {
+    console.error('Customer push subscription lookup error:', linksError);
+    return;
+  }
+  const ids = [...new Set((links || []).map((link) => link.subscription_id))];
+  if (!ids.length) return;
+  const { data: subscriptions, error: subscriptionsError } = await supabase.from('web_push_subscriptions')
+    .select('id,endpoint,p256dh,auth').in('id', ids);
+  if (subscriptionsError) {
+    console.error('Customer push device lookup error:', subscriptionsError);
+    return;
+  }
+  const payload = JSON.stringify({
+    title,
+    body: message,
+    url: `/?order_id=${encodeURIComponent(orderId)}#pesanan`
+  });
+  await Promise.all((subscriptions || []).map(async (subscription) => {
+    try {
+      await webPush.sendNotification({
+        endpoint: subscription.endpoint,
+        keys: { p256dh: subscription.p256dh, auth: subscription.auth }
+      }, payload);
+    } catch (error) {
+      if (error.statusCode === 404 || error.statusCode === 410) {
+        const { error: deleteError } = await supabase.from('web_push_subscriptions').delete().eq('id', subscription.id);
+        if (deleteError) console.error('Expired customer push cleanup error:', deleteError);
+      } else {
+        console.error('Customer push delivery error:', error.message);
+      }
+    }
+  }));
+}
+
+async function saveCustomerPushSubscription(order, subscription) {
+  const endpoint = String(subscription?.endpoint || '');
+  const p256dh = String(subscription?.keys?.p256dh || '');
+  const auth = String(subscription?.keys?.auth || '');
+  if (!endpoint || endpoint.length > 4096
+    || !/^[A-Za-z0-9_-]{32,200}$/.test(p256dh)
+    || !/^[A-Za-z0-9_-]{16,100}$/.test(auth)) {
+    throw new Error('Data langganan notifikasi tidak valid.');
+  }
+  const endpointUrl = new URL(endpoint);
+  const host = endpointUrl.hostname.toLowerCase();
+  const supportedHost = host === 'fcm.googleapis.com'
+    || host === 'web.push.apple.com'
+    || host === 'updates.push.services.mozilla.com'
+    || host.endsWith('.push.services.mozilla.com')
+    || host.endsWith('.notify.windows.com');
+  if (endpointUrl.protocol !== 'https:' || (endpointUrl.port && endpointUrl.port !== '443')
+    || endpointUrl.username || endpointUrl.password || !supportedHost) {
+    throw new Error('Endpoint notifikasi browser tidak didukung.');
+  }
+  const { data: saved, error: saveError } = await supabase.from('web_push_subscriptions')
+    .upsert({ endpoint, p256dh, auth, updated_at: new Date().toISOString() }, { onConflict: 'endpoint' })
+    .select('id').single();
+  if (saveError) throw saveError;
+  const { error: linkError } = await supabase.from('web_push_order_subscriptions')
+    .upsert({ subscription_id: saved.id, order_id: order.id }, { onConflict: 'subscription_id,order_id', ignoreDuplicates: true });
+  if (linkError) throw linkError;
+}
+
+async function sendAdminOrderPush(order) {
+  if (!firebaseMessaging) return;
+  const { data: devices, error } = await supabase.from('admin_push_devices').select('id,fcm_token');
+  if (error) {
+    console.error('Admin push device lookup error:', error);
+    return;
+  }
+  const tokens = [...new Set((devices || []).map((device) => device.fcm_token))];
+  for (let offset = 0; offset < tokens.length; offset += 500) {
+    const batch = tokens.slice(offset, offset + 500);
+    try {
+      const result = await firebaseMessaging.sendEachForMulticast({
+        tokens: batch,
+        data: {
+          title: 'Order diamond baru',
+          body: `${order.id} · ${order.game_name}`,
+          orderId: order.id,
+          url: '/admin'
+        },
+        android: { priority: 'high' }
+      });
+      const invalidTokens = result.responses.flatMap((response, index) => {
+        const code = response.error?.code || '';
+        return ['messaging/invalid-registration-token', 'messaging/registration-token-not-registered'].includes(code)
+          ? [batch[index]]
+          : [];
+      });
+      if (invalidTokens.length) {
+        const { error: deleteError } = await supabase.from('admin_push_devices').delete().in('fcm_token', invalidTokens);
+        if (deleteError) console.error('Invalid admin push device cleanup error:', deleteError);
+      }
+      result.responses.forEach((response) => {
+        if (response.error && !['messaging/invalid-registration-token', 'messaging/registration-token-not-registered'].includes(response.error.code)) {
+          console.error('Admin push delivery error:', response.error.message);
+        }
+      });
+    } catch (pushError) {
+      console.error('Admin push multicast error:', pushError);
+    }
+  }
+}
+
 function asyncRoute(handler) {
   return (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
 }
@@ -563,6 +703,13 @@ app.get('/api/customer-auth/config', (req, res) => {
     return res.status(503).json({ message: 'Login pelanggan belum dikonfigurasi. Admin perlu mengatur SUPABASE_ANON_KEY.' });
   }
   res.json({ supabaseUrl, anonKey: supabaseAnonKey });
+});
+
+app.get('/api/push/config', (req, res) => {
+  if (!webPushReady) {
+    return res.status(503).json({ message: 'Notifikasi browser belum dikonfigurasi. Admin perlu mengatur kunci VAPID.' });
+  }
+  res.json({ vapidPublicKey });
 });
 
 async function getCustomerFromRequest(req) {
@@ -1363,10 +1510,24 @@ app.post('/api/orders', async (req, res) => {
       }
     }
 
+    let pushNotificationMessage = '';
+    if (req.body?.pushSubscription) {
+      try {
+        if (!webPushReady) throw new Error('Kunci VAPID belum dikonfigurasi.');
+        await saveCustomerPushSubscription(orderRow, req.body.pushSubscription);
+        pushNotificationMessage = 'Notifikasi perubahan status aktif di perangkat ini.';
+      } catch (pushError) {
+        console.error('Customer push subscription save error:', pushError.message);
+        pushNotificationMessage = 'Pesanan berhasil dibuat, tetapi notifikasi belum aktif. Coba aktifkan kembali dari halaman checkout.';
+      }
+    }
+
     orderReady = true;
     await createNotification(userId, orderId, STATUS_FLOW[0], `Pesanan ${orderId} telah dibuat. Silakan lakukan pembayaran untuk melanjutkan proses.`);
+    await sendAdminOrderPush(orderRow);
     res.status(201).json({
       message: 'Pesanan berhasil dibuat.',
+      pushNotificationMessage,
       order: getOrderPayload(orderRow, [{ status: STATUS_FLOW[0], note: 'Pesanan dibuat dan menunggu pembayaran.', created_at: now }])
     });
   } catch (error) {
@@ -1463,6 +1624,33 @@ app.patch('/api/notifications/:id/read', asyncRoute(async (req, res) => {
   res.json({ ok: true, message: 'Notifikasi ditandai telah dibaca' });
 }));
 
+app.post('/api/admin/push/devices', adminOnly, asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  if (!firebaseMessaging) return res.status(503).json({ message: 'Notifikasi APK belum dikonfigurasi. Admin perlu mengatur kredensial Firebase di Vercel.' });
+  const token = String(req.body?.token || '').trim();
+  if (token.length < 20 || token.length > 4096) {
+    return res.status(400).json({ message: 'Token perangkat tidak valid.' });
+  }
+  const { error } = await supabase.from('admin_push_devices').upsert({
+    fcm_token: token,
+    admin_username: req.adminSession.username,
+    device_name: String(req.body?.deviceName || 'Android admin').trim().slice(0, 100),
+    last_seen_at: new Date().toISOString()
+  }, { onConflict: 'fcm_token' });
+  if (error) throw error;
+  res.json({ message: 'Perangkat aplikasi admin berhasil didaftarkan untuk notifikasi order.' });
+}));
+
+app.delete('/api/admin/push/devices', adminOnly, asyncRoute(async (req, res) => {
+  if (!dbOrError(res)) return;
+  const token = String(req.body?.token || '').trim();
+  if (!token) return res.status(400).json({ message: 'Token perangkat tidak valid.' });
+  const { error } = await supabase.from('admin_push_devices').delete()
+    .eq('fcm_token', token).eq('admin_username', req.adminSession.username);
+  if (error) throw error;
+  res.json({ message: 'Perangkat admin dihapus dari daftar notifikasi.' });
+}));
+
 app.get('/api/admin/orders', adminOnly, asyncRoute(async (req, res) => {
   if (!dbOrError(res)) return;
   const { data, error } = await supabase.from('orders').select('*').order('created_at', { ascending: false });
@@ -1499,7 +1687,10 @@ app.patch('/api/admin/orders/:id/status', adminOnly, async (req, res) => {
       created_at: now
     });
     if (historyError) throw historyError;
-    await createNotification(order.user_id, order.id, `Status Pesanan ${status}`, `Status pesanan Anda sedang diperbarui menjadi ${status}.`);
+    const notificationTitle = `Status Pesanan ${status}`;
+    const notificationMessage = `Pesanan ${order.id} kini berstatus ${status}.`;
+    await createNotification(order.user_id, order.id, notificationTitle, notificationMessage);
+    await sendCustomerPush(order.id, notificationTitle, notificationMessage);
     res.json({ message: 'Status pesanan berhasil diperbarui.', order: await getOrderById(req.params.id) });
   } catch (error) {
     console.error('Order status update error:', error);

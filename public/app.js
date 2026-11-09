@@ -16,11 +16,148 @@ const state = {
   customerAuthConfig: null,
   heroBannerIndex: 0,
   heroBannerTimer: null,
-  heroBannerUrls: []
+  heroBannerUrls: [],
+  customerPushSubscription: null,
+  adminPushToken: '',
+  registeredAdminPushToken: ''
 };
 
 const API_BASE = '/api';
 const CUSTOMER_SESSION_KEY = 'customerAuthSession';
+const CUSTOMER_PUSH_KEY = 'customerPushSubscription';
+
+function decodeVapidPublicKey(value) {
+  const padded = `${value}${'='.repeat((4 - value.length % 4) % 4)}`;
+  const raw = atob(padded.replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(raw, (character) => character.charCodeAt(0));
+}
+
+function updateCustomerPushButton() {
+  const button = document.getElementById('customer-push-button');
+  if (!button) return;
+  const subscription = localStorage.getItem(CUSTOMER_PUSH_KEY);
+  button.textContent = subscription ? 'Matikan notifikasi status' : 'Aktifkan notifikasi status pesanan';
+}
+
+async function setupCustomerPush() {
+  const button = document.getElementById('customer-push-button');
+  const feedback = document.getElementById('customer-push-feedback');
+  if (!button || !feedback) return;
+  button.addEventListener('click', async () => {
+    button.disabled = true;
+    feedback.hidden = true;
+    try {
+      if (localStorage.getItem(CUSTOMER_PUSH_KEY)) {
+        const registration = await navigator.serviceWorker.getRegistration('/');
+        const subscription = await registration?.pushManager.getSubscription();
+        if (subscription) await subscription.unsubscribe();
+        localStorage.removeItem(CUSTOMER_PUSH_KEY);
+        state.customerPushSubscription = null;
+        feedback.textContent = 'Notifikasi status pesanan dimatikan di perangkat ini.';
+        feedback.classList.add('success');
+        feedback.hidden = false;
+        updateCustomerPushButton();
+        return;
+      }
+      if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+        throw new Error('Browser ini belum mendukung push. Di iPhone, buka situs dari ikon layar utama setelah menambahkannya ke Home Screen.');
+      }
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') throw new Error('Izin notifikasi belum diberikan. Aktifkan izin situs ini pada pengaturan browser.');
+      const config = await fetchJson(`${API_BASE}/push/config`);
+      const registration = await navigator.serviceWorker.register('/sw.js');
+      let subscription = await registration.pushManager.getSubscription();
+      if (!subscription) {
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: decodeVapidPublicKey(config.vapidPublicKey)
+        });
+      }
+      state.customerPushSubscription = subscription.toJSON();
+      localStorage.setItem(CUSTOMER_PUSH_KEY, JSON.stringify(state.customerPushSubscription));
+      feedback.textContent = 'Izin notifikasi aktif. Setelah pesanan dibuat, pembaruan status akan dikirim ke perangkat ini.';
+      feedback.classList.add('success');
+      feedback.hidden = false;
+      updateCustomerPushButton();
+    } catch (error) {
+      feedback.textContent = getErrorMessage(error, 'Gagal mengaktifkan notifikasi.');
+      feedback.classList.remove('success');
+      feedback.hidden = false;
+    } finally {
+      button.disabled = false;
+    }
+  });
+  updateCustomerPushButton();
+}
+
+function getSavedCustomerPushSubscription() {
+  try {
+    return state.customerPushSubscription
+      || JSON.parse(localStorage.getItem(CUSTOMER_PUSH_KEY) || 'null');
+  } catch (error) {
+    console.error('Saved customer push subscription is invalid:', error);
+    localStorage.removeItem(CUSTOMER_PUSH_KEY);
+    state.customerPushSubscription = null;
+    return null;
+  }
+}
+
+async function registerAdminPushToken(token = state.adminPushToken) {
+  if (!token || !localStorage.getItem('adminSessionToken') || state.registeredAdminPushToken === token) return;
+  try {
+    const result = await fetchJson(`${API_BASE}/admin/push/devices`, {
+      method: 'POST',
+      body: JSON.stringify({ token, deviceName: 'KRIS DIAMOND SHOP Admin Android' })
+    });
+    state.registeredAdminPushToken = token;
+    if (window.krisAdminAndroid === true) {
+      const feedback = document.getElementById('admin-push-feedback');
+      if (feedback) {
+        feedback.textContent = result.message;
+        feedback.classList.add('success');
+        feedback.hidden = false;
+      }
+    }
+  } catch (error) {
+    console.error('Admin push registration failed:', error);
+    if (window.krisAdminAndroid === true) {
+      const feedback = document.getElementById('admin-push-feedback');
+      if (feedback) {
+        feedback.textContent = getErrorMessage(error, 'Notifikasi order belum tersambung. Periksa konfigurasi Firebase.');
+        feedback.classList.remove('success');
+        feedback.hidden = false;
+      }
+    }
+  }
+}
+
+window.onKrisAdminFcmToken = (token) => {
+  state.adminPushToken = String(token || '');
+  registerAdminPushToken(state.adminPushToken);
+};
+
+window.onKrisAdminAppReady = () => {
+  const feedback = document.getElementById('admin-push-feedback');
+  if (feedback && !state.adminPushToken) {
+    feedback.textContent = window.krisAdminNotificationsDenied
+      ? 'Izinkan notifikasi untuk aplikasi KRIS DIAMOND Admin di pengaturan Android.'
+      : window.krisAdminFcmUnavailable
+        ? 'Notifikasi order Android belum tersambung. Lengkapi konfigurasi Firebase untuk aplikasi dan server.'
+        : 'Aplikasi admin aktif. Login untuk menyambungkan notifikasi order.';
+    feedback.classList.remove('success');
+    feedback.hidden = false;
+  }
+};
+
+window.onKrisAdminFcmUnavailable = () => {
+  window.krisAdminFcmUnavailable = true;
+  window.onKrisAdminAppReady();
+};
+
+window.onKrisAdminNotificationPermissionRequired = () => {
+  window.krisAdminNotificationsDenied = true;
+  window.onKrisAdminAppReady();
+};
 
 async function getCustomerAuthConfig() {
   if (state.customerAuthConfig) return state.customerAuthConfig;
@@ -873,6 +1010,7 @@ async function handleCheckoutSubmit(event) {
     serverId: document.getElementById('server-id').value,
     paymentMethod: document.getElementById('payment-method').value,
     voucherCode: document.getElementById('voucher-code').value,
+    pushSubscription: getSavedCustomerPushSubscription(),
     note: 'Checkout dari landing page'
   };
 
@@ -883,9 +1021,16 @@ async function handleCheckoutSubmit(event) {
     });
 
     const targetOrderId = result.order?.id || '';
-    alert(`Pesanan berhasil dibuat. ID Pesanan: ${targetOrderId}`);
+    const pushMessage = result.pushNotificationMessage ? ` ${result.pushNotificationMessage}` : '';
+    if (pushMessage && document.getElementById('customer-push-feedback')) {
+      const pushFeedback = document.getElementById('customer-push-feedback');
+      pushFeedback.textContent = result.pushNotificationMessage;
+      pushFeedback.classList.add('success');
+      pushFeedback.hidden = false;
+    }
+    alert(`Pesanan berhasil dibuat. ID Pesanan: ${targetOrderId}.${pushMessage}`);
     document.getElementById('checkout-form').reset();
-      updateCustomerAccountUI();
+    updateCustomerAccountUI();
     if (targetOrderId) {
       document.getElementById('order-id-input').value = targetOrderId;
       await getOrderResult(targetOrderId);
@@ -2117,6 +2262,7 @@ async function initAdminPage() {
       renderLatestOrders(orders);
       drawRevenueChart(orders);
       await loadAdminFeatures();
+      await registerAdminPushToken();
     } catch (error) {
       console.error('Admin fetch error:', error);
       if (!localStorage.getItem('adminSessionToken') || error.message.includes('Sesi admin tidak valid')) {
@@ -2185,7 +2331,18 @@ async function initAdminPage() {
       ));
     }
   });
-  document.getElementById('admin-logout')?.addEventListener('click', () => {
+  document.getElementById('admin-logout')?.addEventListener('click', async () => {
+    if (window.krisAdminAndroid === true && state.adminPushToken) {
+      try {
+        await fetchJson(`${API_BASE}/admin/push/devices`, {
+          method: 'DELETE',
+          body: JSON.stringify({ token: state.adminPushToken })
+        });
+      } catch (error) {
+        console.error('Admin push device removal failed:', error);
+      }
+      state.registeredAdminPushToken = '';
+    }
     localStorage.removeItem('adminSessionToken');
     localStorage.removeItem('adminUsername');
     loginForm.hidden = false;
@@ -2212,8 +2369,17 @@ async function initAdminPage() {
 
 function setupHomePage() {
   setupCustomerAccountUI();
+  setupCustomerPush();
   document.getElementById('hero-banner-prev')?.addEventListener('click', () => showHeroBanner(state.heroBannerIndex - 1));
   document.getElementById('hero-banner-next')?.addEventListener('click', () => showHeroBanner(state.heroBannerIndex + 1));
+  const requestedOrderId = new URLSearchParams(window.location.search).get('order_id');
+  if (requestedOrderId) {
+    const orderIdInput = document.getElementById('order-id-input');
+    if (orderIdInput) {
+      orderIdInput.value = requestedOrderId;
+      getOrderResult(requestedOrderId);
+    }
+  }
   if (!new URLSearchParams(window.location.search).has('copy-scan')) {
     loadSiteContentOverrides();
   }
